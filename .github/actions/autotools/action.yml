@@ -48,7 +48,7 @@ runs:
         make 
         make check
     - id: upload
-      if: ${{ inputs.do-release }}
+      if: ${{ inputs.do-release == 'true' }}
       uses: actions/upload-artifact@v4
       with:
         name: tarballs ${{ github.sha }}
