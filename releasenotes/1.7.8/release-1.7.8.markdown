@@ -36,6 +36,8 @@ contains a zip with the two normal source tarballs.
 
 ## Changelog
 
+* Fix buffer overflow in rofi -e after reading from stdin (#2082) (Thanks to
+Faule Socke)
 * [DRun] Reduce DBus timeout to 1500ms add option to disable DBusActivatable.
   Issue: #2077
 * [CI] Do explicit compare with 'true'?
