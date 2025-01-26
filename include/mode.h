@@ -284,14 +284,14 @@ ModeMode mode_completer_result(Mode *sw, int menu_retv, char **input,
 gboolean mode_is_completer(const Mode *sw);
 
 /**
- * @param sw The mode to query
+ * @param mode The mode to query
  *
  * @returns the modes ABI version.
  */
 int mode_get_abi_version(Mode *const mode);
 
 /**
- * @param sw The mode to query
+ * @param mode The mode to query
  * @param mod The GModule used to load the mode
  *
  * Set GModule used to load this plugin, this is used to
@@ -299,7 +299,7 @@ int mode_get_abi_version(Mode *const mode);
  */
 void mode_plugin_set_module(Mode *mode, GModule *mod);
 /**
- * @param sw The mode to query
+ * @param mode The mode to query
  *
  * @returns the GModule used to load this plugin. NULL if not a plugin.
  */
