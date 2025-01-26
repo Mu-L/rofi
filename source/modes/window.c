@@ -26,8 +26,6 @@
  */
 
 /** The log domain of this dialog. */
-#include <X11/X.h>
-#include <xcb/xproto.h>
 #define G_LOG_DOMAIN "Modes.Window"
 
 #include "config.h"
@@ -698,25 +696,6 @@ static void _window_mode_load_data(Mode *sw, unsigned int cd) {
   }
   xcb_ewmh_get_windows_reply_wipe(&clients);
 }
-
-static gint _window_mode_sort(gconstpointer a, gconstpointer b, gpointer data) {
-  WindowModePrivateData *pd = (WindowModePrivateData *)data;
-  gint wa = *(const int *)a;
-  gint wb = *(const int *)b;
-  const client *ca = window_client(pd, wa);
-  const client *cb = window_client(pd, wb);
-  if (ca == NULL || cb == NULL) {
-    return 0;
-  }
-  if (ca->active) {
-    return -1;
-  }
-  if (cb->active) {
-    return 1;
-  }
-
-  return 0;
-}
 static int window_mode_init(Mode *sw) {
   if (mode_get_private_data(sw) == NULL) {
 
@@ -738,13 +717,6 @@ static int window_mode_init(Mode *sw) {
     if (!window_matching_fields_parsed) {
       window_mode_parse_fields();
     }
-    // Sort active window first.
-    p = rofi_theme_find_property(wid, P_BOOLEAN, "sort-active-window-first",
-                                 FALSE);
-    if (p && p->type == P_BOOLEAN && p->value.b == TRUE) {
-      g_qsort_with_data(pd->ids->array, pd->ids->len, sizeof(xcb_window_t),
-                        _window_mode_sort, pd);
-    }
   }
   return TRUE;
 }
@@ -763,13 +735,6 @@ static int window_mode_init_cd(Mode *sw) {
     _window_mode_load_data(sw, TRUE);
     if (!window_matching_fields_parsed) {
       window_mode_parse_fields();
-    }
-    // Sort active window first.
-    p = rofi_theme_find_property(wid, P_BOOLEAN, "sort-active-window-first",
-                                 FALSE);
-    if (p && p->type == P_BOOLEAN && p->value.b == TRUE) {
-      g_qsort_with_data(pd->ids->array, pd->ids->len, sizeof(xcb_window_t),
-                        _window_mode_sort, pd);
     }
   }
   return TRUE;

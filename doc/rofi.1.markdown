@@ -683,19 +683,6 @@ configuration {
 
 or pass `-window-hide-active-window true` on command line.
 
-You can sort the currently active window to the top of the list with the
-'sort-active-window-first' setting:
-
-```css
-configuration {
-  window {
-      sort-active-window-first: true;
-  }
-}
-```
-
-or pass `-sort-active-window-first true` on command line.
-
 You can prefer the icon theme above the window set icon with the
 'prefer-icon-theme' setting:
 
