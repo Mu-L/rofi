@@ -32,6 +32,7 @@
 #include "config.h"
 #ifdef XCB_IMDKIT
 #include <xcb-imdkit/encoding.h>
+#include <xcb/xcb_keysyms.h>
 #endif
 #include <cairo-xcb.h>
 #include <cairo.h>
@@ -90,6 +91,7 @@ struct _xcb_stuff xcb_int = {.connection = NULL,
                              .screen = NULL,
 #ifdef XCB_IMDKIT
                              .im = NULL,
+                             .syms = NULL,
 #endif
                              .screen_nbr = -1,
                              .sndisplay = NULL,
@@ -126,13 +128,13 @@ const struct {
 } cursor_names[] = {
     {"default", "left_ptr"}, {"pointer", "hand"}, {"text", "xterm"}};
 
-static xcb_visualtype_t *lookup_visual(xcb_screen_t *s, xcb_visualid_t visual) {
+static xcb_visualtype_t *lookup_visual(xcb_screen_t *s, xcb_visualid_t vis) {
   xcb_depth_iterator_t d;
   d = xcb_screen_allowed_depths_iterator(s);
   for (; d.rem; xcb_depth_next(&d)) {
     xcb_visualtype_iterator_t v = xcb_depth_visuals_iterator(d.data);
     for (; v.rem; xcb_visualtype_next(&v)) {
-      if (v.data->visual_id == visual) {
+      if (v.data->visual_id == vis) {
         return v.data;
       }
     }
@@ -558,7 +560,7 @@ static int x11_is_extension_present(const char *extension) {
   return present;
 }
 
-static void x11_build_monitor_layout_xinerama() {
+static void x11_build_monitor_layout_xinerama(void) {
   xcb_xinerama_query_screens_cookie_t screens_cookie =
       xcb_xinerama_query_screens_unchecked(xcb->connection);
 
@@ -589,7 +591,7 @@ static void x11_build_monitor_layout_xinerama() {
   free(screens_reply);
 }
 
-static void x11_build_monitor_layout() {
+static void x11_build_monitor_layout(void) {
   if (xcb->monitors) {
     return;
   }
@@ -775,7 +777,7 @@ static int monitor_get_dimension(int monitor_id, workarea *mon) {
 // find the dimensions of the monitor displaying point x,y
 static void monitor_dimensions(int x, int y, workarea *mon) {
   if (mon == NULL) {
-    g_error("%s: mon == NULL", __FUNCTION__);
+    g_error("%s: mon == NULL", __func__);
     return;
   }
   memset(mon, 0, sizeof(workarea));
@@ -818,7 +820,7 @@ static int pointer_get(xcb_window_t root, int *x, int *y) {
 
 static int monitor_active_from_winid(xcb_drawable_t id, workarea *mon) {
   if (mon == NULL) {
-    g_error("%s: mon == NULL", __FUNCTION__);
+    g_error("%s: mon == NULL", __func__);
     return FALSE;
   }
   xcb_window_t root = xcb->screen->root;
@@ -851,7 +853,7 @@ static int monitor_active_from_id_focused(int mon_id, workarea *mon) {
   xcb_window_t active_window;
   xcb_get_property_cookie_t awc;
   if (mon == NULL) {
-    g_error("%s: mon == NULL", __FUNCTION__);
+    g_error("%s: mon == NULL", __func__);
     return retv;
   }
   awc = xcb_ewmh_get_active_window(&xcb->ewmh, xcb->screen_nbr);
@@ -881,37 +883,38 @@ static int monitor_active_from_id_focused(int mon_id, workarea *mon) {
     free(tree_reply);
     return retv;
   }
-  xcb_translate_coordinates_cookie_t ct = xcb_translate_coordinates(
-      xcb->connection, tree_reply->parent, r->root, r->x, r->y);
-  xcb_translate_coordinates_reply_t *t =
-      xcb_translate_coordinates_reply(xcb->connection, ct, NULL);
-  if (t) {
-    if (mon_id == -2) {
-      // place the menu above the window
-      // if some window is focused, place menu above window, else fall
-      // back to selected monitor.
-      mon->x = t->dst_x - r->x;
-      mon->y = t->dst_y - r->y;
-      mon->w = r->width;
-      mon->h = r->height;
-      retv = TRUE;
-      if ((current_window_manager & WM_ROOT_WINDOW_OFFSET) ==
-          WM_ROOT_WINDOW_OFFSET) {
-        mon->x += r->x;
-        mon->y += r->y;
-      }
-      g_debug("mon pos: %d %d %d-%d", mon->x, mon->y, mon->w, mon->h);
-    } else if (mon_id == -4) {
-      g_debug("Find monitor at location: %d %d", t->dst_x, t->dst_y);
-      monitor_dimensions(t->dst_x, t->dst_y, mon);
-      g_debug("Monitor found pos: %d %d %d-%d", mon->x, mon->y, mon->w, mon->h);
-      retv = TRUE;
+  if (tree_reply->parent != r->root) {
+    xcb_translate_coordinates_cookie_t ct = xcb_translate_coordinates(
+        xcb->connection, tree_reply->parent, r->root, r->x, r->y);
+    xcb_translate_coordinates_reply_t *t =
+        xcb_translate_coordinates_reply(xcb->connection, ct, NULL);
+    if (t) {
+      r->x = t->dst_x;
+      r->y = t->dst_y;
+      free(t);
+    } else {
+      g_debug("Failed to get translate position of active window, falling back "
+              "to mouse location (-5).");
+      free(r);
+      free(tree_reply);
+      return retv;
     }
-    free(t);
-  } else {
-    g_debug("Failed to get translate position of active window, falling back "
-            "to mouse location (-5).");
   }
+  if (mon_id == -2) {
+    // place the menu above the window
+    // if some window is focused, place menu above window, else fall
+    // back to selected monitor.
+    mon->x = r->x + r->border_width;
+    mon->y = r->y + r->border_width;
+    mon->w = r->width;
+    mon->h = r->height;
+    retv = TRUE;
+  } else if (mon_id == -4) {
+    g_debug("Find monitor at location: %d %d", r->x, r->y);
+    monitor_dimensions(r->x, r->y, mon);
+    retv = TRUE;
+  }
+  g_debug("mon pos: %d %d %d-%d", mon->x, mon->y, mon->w, mon->h);
   free(r);
   free(tree_reply);
   return retv;
@@ -920,7 +923,7 @@ static int monitor_active_from_id(int mon_id, workarea *mon) {
   xcb_window_t root = xcb->screen->root;
   int x, y;
   if (mon == NULL) {
-    g_error("%s: mon == NULL", __FUNCTION__);
+    g_error("%s: mon == NULL", __func__);
     return FALSE;
   }
   g_debug("Monitor id: %d", mon_id);
@@ -1000,7 +1003,7 @@ workarea mon_cache = {
 };
 int monitor_active(workarea *mon) {
   if (mon == NULL) {
-    g_error("%s: mon == NULL", __FUNCTION__);
+    g_error("%s: mon == NULL", __func__);
     return FALSE;
   }
   g_debug("Monitor active");
@@ -1188,7 +1191,7 @@ static gboolean x11_button_to_nk_bindings_scroll(guint32 x11_button,
 static void rofi_key_press_event_handler(xcb_key_press_event_t *xkpe,
                                          RofiViewState *state) {
   gchar *text;
-  g_log("IMDKit", G_LOG_LEVEL_DEBUG, "press handler");
+  g_log("IMDKit", G_LOG_LEVEL_DEBUG, "press handler %d", xkpe->detail);
 
   xcb->last_timestamp = xkpe->time;
   if (config.xserver_i300_workaround) {
@@ -1207,6 +1210,7 @@ static void rofi_key_press_event_handler(xcb_key_press_event_t *xkpe,
 
 static void rofi_key_release_event_handler(xcb_key_release_event_t *xkre,
                                            G_GNUC_UNUSED RofiViewState *state) {
+  g_log("IMDKit", G_LOG_LEVEL_DEBUG, "release handler %d", xkre->detail);
   xcb->last_timestamp = xkre->time;
   nk_bindings_seat_handle_key(xcb->bindings_seat, NULL, xkre->detail,
                               NK_BINDINGS_KEY_STATE_RELEASE);
@@ -1371,8 +1375,9 @@ static void main_loop_x11_event_handler_view(xcb_generic_event_t *event) {
     xcb_key_press_event_t *xkpe = (xcb_key_press_event_t *)event;
 #ifdef XCB_IMDKIT
     if (xcb->ic) {
-      g_log("IMDKit", G_LOG_LEVEL_DEBUG, "input xim");
+      g_log("IMDKit", G_LOG_LEVEL_DEBUG, "press key %d to xim", xkpe->detail);
       xcb_xim_forward_event(xcb->im, xcb->ic, xkpe);
+      return;
     } else
 #endif
     {
@@ -1384,7 +1389,19 @@ static void main_loop_x11_event_handler_view(xcb_generic_event_t *event) {
     xcb_key_release_event_t *xkre = (xcb_key_release_event_t *)event;
 #ifdef XCB_IMDKIT
     if (xcb->ic) {
+      g_log("IMDKit", G_LOG_LEVEL_DEBUG, "release key %d to xim", xkre->detail);
+
+      // Check if the keysym is a modifier key (e.g., Shift, Ctrl, Alt). If it
+      // is, sleep for 5 milliseconds as a workaround for XCB XIM limitation.
+      // This sleep helps to ensure that XCB XIM can properly handle subsequent
+      // key events that may occur rapidly after a modifier key is pressed.
+      xcb_keysym_t sym = xcb_key_press_lookup_keysym(xcb->syms, xkre, 0);
+      if (xcb_is_modifier_key(sym)) {
+        struct timespec five_millis = {.tv_sec = 0, .tv_nsec = 5000000};
+        nanosleep(&five_millis, NULL);
+      }
       xcb_xim_forward_event(xcb->im, xcb->ic, xkre);
+      return;
     } else
 #endif
     {
@@ -1407,6 +1424,7 @@ void x11_event_handler_fowarding(G_GNUC_UNUSED xcb_xim_t *im,
   if (state == NULL) {
     return;
   }
+
   uint8_t type = event->response_type & ~0x80;
   if (type == XCB_KEY_PRESS) {
     rofi_key_press_event_handler(event, state);
@@ -1414,6 +1432,7 @@ void x11_event_handler_fowarding(G_GNUC_UNUSED xcb_xim_t *im,
     xcb_key_release_event_t *xkre = (xcb_key_release_event_t *)event;
     rofi_key_release_event_handler(xkre, state);
   }
+  rofi_view_maybe_update(state);
 }
 #endif
 
@@ -1434,9 +1453,8 @@ static gboolean main_loop_x11_event_handler(xcb_generic_event_t *ev,
   }
 
 #ifdef XCB_IMDKIT
-  if (xcb->im && xcb_xim_filter_event(xcb->im, ev)) {
+  if (xcb->im && xcb_xim_filter_event(xcb->im, ev))
     return G_SOURCE_CONTINUE;
-  }
 #endif
 
   uint8_t type = ev->response_type & ~0x80;
@@ -1642,8 +1660,6 @@ static void x11_helper_discover_window_manager(void) {
         if (g_strcmp0(str, "i3") == 0) {
           current_window_manager =
               WM_DO_NOT_CHANGE_CURRENT_DESKTOP | WM_PANGO_WORKSPACE_NAMES;
-        } else if (g_strcmp0(str, "bspwm") == 0) {
-          current_window_manager = WM_ROOT_WINDOW_OFFSET;
         }
         g_free(str);
       }
@@ -1672,6 +1688,7 @@ gboolean display_setup(GMainLoop *main_loop, NkBindings *bindings) {
   xcb->connection = g_water_xcb_source_get_connection(xcb->source);
 #ifdef XCB_IMDKIT
   xcb->im = xcb_xim_create(xcb->connection, xcb->screen_nbr, NULL);
+  xcb->syms = xcb_key_symbols_alloc(xcb->connection);
 #endif
 
 #ifdef XCB_IMDKIT
@@ -1899,7 +1916,7 @@ gboolean display_late_setup(void) {
   // Try to grab the keyboard as early as possible.
   // We grab this using the rootwindow (as dmenu does it).
   // this seems to result in the smallest delay for most people.
-  if (find_arg("-normal-window") >= 0) {
+  if (find_arg("-normal-window") >= 0 || find_arg("-transient-window") >= 0) {
     return TRUE;
   }
   if (find_arg("-no-lazy-grab") >= 0) {

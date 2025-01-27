@@ -473,13 +473,7 @@ static ModeMode file_browser_mode_result(Mode *sw, int mretv, char **input,
   }
   gboolean special_command =
       ((mretv & MENU_CUSTOM_ACTION) == MENU_CUSTOM_ACTION);
-  if (mretv & MENU_NEXT) {
-    retv = NEXT_DIALOG;
-  } else if (mretv & MENU_PREVIOUS) {
-    retv = PREVIOUS_DIALOG;
-  } else if (mretv & MENU_QUICK_SWITCH) {
-    retv = (mretv & MENU_LOWER_MASK);
-  } else if (mretv & MENU_CUSTOM_COMMAND) {
+  if (mretv & MENU_CUSTOM_COMMAND) {
     retv = (mretv & MENU_LOWER_MASK);
   } else if ((mretv & MENU_OK)) {
     if (selected_line < pd->array_length) {
@@ -609,11 +603,12 @@ static cairo_surface_t *_get_icon(const Mode *sw, unsigned int selected_line,
       (FileBrowserModePrivateData *)mode_get_private_data(sw);
   g_return_val_if_fail(pd->array != NULL, NULL);
   FBFile *dr = &(pd->array[selected_line]);
-  if (dr->icon_fetch_uid > 0 && dr->icon_fetch_size == height) {
-    return rofi_icon_fetcher_get(dr->icon_fetch_uid);
-  }
   if (rofi_icon_fetcher_file_is_image(dr->path)) {
     dr->icon_fetch_uid = rofi_icon_fetcher_query(dr->path, height);
+  } else if (dr->type == RFILE) {
+    gchar* _path = g_strconcat("thumbnail://", dr->path, NULL);
+    dr->icon_fetch_uid = rofi_icon_fetcher_query(_path, height);
+    g_free(_path);
   } else {
     dr->icon_fetch_uid = rofi_icon_fetcher_query(icon_name[dr->type], height);
   }
@@ -657,13 +652,7 @@ ModeMode file_browser_mode_completer(Mode *sw, int mretv, char **input,
   ModeMode retv = MODE_EXIT;
   FileBrowserModePrivateData *pd =
       (FileBrowserModePrivateData *)mode_get_private_data(sw);
-  if (mretv & MENU_NEXT) {
-    retv = NEXT_DIALOG;
-  } else if (mretv & MENU_PREVIOUS) {
-    retv = PREVIOUS_DIALOG;
-  } else if (mretv & MENU_QUICK_SWITCH) {
-    retv = (mretv & MENU_LOWER_MASK);
-  } else if ((mretv & MENU_OK)) {
+  if ((mretv & MENU_OK)) {
     if (selected_line < pd->array_length) {
       if (pd->array[selected_line].type == UP) {
         GFile *new = g_file_get_parent(pd->current_dir);

@@ -25,10 +25,11 @@
  *
  */
 
-/** The log domain of this dialog. */
 #define G_LOG_DOMAIN "Modes.DRun"
-
 #include "config.h"
+/** The log domain of this dialog. */
+#include "glib.h"
+
 #ifdef ENABLE_DRUN
 #include <limits.h>
 #include <stdio.h>
@@ -43,6 +44,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#include <gio/gio.h>
 
 #include "helper.h"
 #include "history.h"
@@ -223,6 +226,8 @@ struct _DRunModePrivateData {
   char *old_completer_input;
   uint32_t selected_line;
   char *old_input;
+
+  gboolean disable_dbusactivate;
 };
 
 struct RegexEvalArg {
@@ -329,7 +334,92 @@ static void launch_link_entry(DRunModeEntry *e) {
     g_free(path);
   }
 }
-static void exec_cmd_entry(DRunModeEntry *e, const char *path) {
+static gchar *app_path_for_id(const gchar *app_id) {
+  gchar *path;
+  gint i;
+
+  path = g_strconcat("/", app_id, NULL);
+  for (i = 0; path[i]; i++) {
+    if (path[i] == '.')
+      path[i] = '/';
+    if (path[i] == '-')
+      path[i] = '_';
+  }
+
+  return path;
+}
+static GVariant *app_get_platform_data(void) {
+  GVariantBuilder builder;
+  const gchar *startup_id;
+
+  g_variant_builder_init(&builder, G_VARIANT_TYPE_VARDICT);
+
+  if ((startup_id = g_getenv("DESKTOP_STARTUP_ID")))
+    g_variant_builder_add(&builder, "{sv}", "desktop-startup-id",
+                          g_variant_new_string(startup_id));
+
+  if ((startup_id = g_getenv("XDG_ACTIVATION_TOKEN")))
+    g_variant_builder_add(&builder, "{sv}", "activation-token",
+                          g_variant_new_string(startup_id));
+
+  return g_variant_builder_end(&builder);
+}
+
+static gboolean exec_dbus_entry(DRunModeEntry *e, const char *path) {
+  GVariantBuilder files;
+  GDBusConnection *session;
+  GError *error = NULL;
+  gchar *object_path;
+  GVariant *result;
+  GVariant *params = NULL;
+  const char *method = "Activate";
+  g_debug("Trying to launch desktop file using dbus activation.");
+
+  session = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
+  if (!session) {
+    g_warning("unable to connect to D-Bus: %s\n", error->message);
+    g_error_free(error);
+    return FALSE;
+  }
+
+  object_path = app_path_for_id(e->app_id);
+
+  g_variant_builder_init(&files, G_VARIANT_TYPE_STRING_ARRAY);
+
+  if (path != NULL) {
+    method = "Open";
+    params = g_variant_new("(as@a{sv})", &files, app_get_platform_data());
+  } else {
+    params = g_variant_new("(@a{sv})", app_get_platform_data());
+  }
+  if (path) {
+    GFile *file = g_file_new_for_commandline_arg(path);
+    g_variant_builder_add_value(
+        &files, g_variant_new_take_string(g_file_get_uri(file)));
+    g_object_unref(file);
+  }
+  // Wait 1500ms, otherwise assume failed.
+  result = g_dbus_connection_call_sync(
+      session, e->app_id, object_path, "org.freedesktop.Application", method,
+      params, G_VARIANT_TYPE_UNIT, G_DBUS_CALL_FLAGS_NONE, 1500, NULL, &error);
+
+  g_free(object_path);
+
+  if (result) {
+    g_variant_unref(result);
+  } else {
+    g_warning("error sending %s message to application: %s\n", "Open",
+              error->message);
+    g_error_free(error);
+    g_object_unref(session);
+    return FALSE;
+  }
+  g_object_unref(session);
+  return TRUE;
+}
+
+static void exec_cmd_entry(DRunModePrivateData *pd, DRunModeEntry *e,
+                           const char *path) {
   GError *error = NULL;
   GRegex *reg = g_regex_new("%[a-zA-Z%]", 0, 0, &error);
   if (error != NULL) {
@@ -398,15 +488,30 @@ static void exec_cmd_entry(DRunModeEntry *e, const char *path) {
         g_key_file_get_string(e->key_file, e->action, "StartupWMClass", NULL);
   }
 
-  // Returns false if not found, if key not found, we don't want run in
-  // terminal.
-  gboolean terminal =
-      g_key_file_get_boolean(e->key_file, e->action, "Terminal", NULL);
-  if (helper_execute_command(exec_path, fp, terminal, sn ? &context : NULL)) {
-    char *drun_cach_path = g_build_filename(cache_dir, DRUN_CACHE_FILE, NULL);
-    // Store it based on the unique identifiers (desktop_id).
-    history_set(drun_cach_path, e->desktop_id);
-    g_free(drun_cach_path);
+  /**
+   * If its required to launch via dbus, do that.
+   */
+  gboolean launched = FALSE;
+  if (!(pd->disable_dbusactivate)) {
+    if (g_key_file_get_boolean(e->key_file, e->action, "DBusActivatable",
+                               NULL)) {
+      printf("DBus launch\n");
+      launched = exec_dbus_entry(e, path);
+    }
+  }
+  if (launched == FALSE) {
+    /** Fallback to old style if not set. */
+
+    // Returns false if not found, if key not found, we don't want run in
+    // terminal.
+    gboolean terminal =
+        g_key_file_get_boolean(e->key_file, e->action, "Terminal", NULL);
+    if (helper_execute_command(exec_path, fp, terminal, sn ? &context : NULL)) {
+      char *drun_cach_path = g_build_filename(cache_dir, DRUN_CACHE_FILE, NULL);
+      // Store it based on the unique identifiers (desktop_id).
+      history_set(drun_cach_path, e->desktop_id);
+      g_free(drun_cach_path);
+    }
   }
   g_free(wmclass);
   g_free(exec_path);
@@ -1010,6 +1115,7 @@ static gboolean drun_read_cache(DRunModePrivateData *pd,
     drun_read_stringv(fd, &(entry->keywords));
 
     drun_read_string(fd, &(entry->comment));
+    drun_read_string(fd, &(entry->url));
     int32_t type = 0;
     drun_read_integer(fd, &(type));
     entry->type = type;
@@ -1069,6 +1175,11 @@ static void get_apps(DRunModePrivateData *pd) {
       }
       TICK_N("Get Desktop apps (system dirs)");
     }
+    pd->disable_dbusactivate = FALSE;
+    p = rofi_theme_find_property(wid, P_BOOLEAN, "DBusActivatable", TRUE);
+    if (p != NULL && (p->type == P_BOOLEAN && p->value.b == FALSE)) {
+      pd->disable_dbusactivate = TRUE;
+    }
     get_apps_history(pd);
 
     g_qsort_with_data(pd->entry_list, pd->cmd_list_length,
@@ -1081,7 +1192,7 @@ static void get_apps(DRunModePrivateData *pd) {
   g_free(cache_file);
 }
 
-static void drun_mode_parse_entry_fields() {
+static void drun_mode_parse_entry_fields(void) {
   char *savept = NULL;
   // Make a copy, as strtok will modify it.
   char *switcher_str = g_strdup(config.drun_match_fields);
@@ -1117,7 +1228,7 @@ static void drun_mode_parse_entry_fields() {
   g_free(switcher_str);
 }
 
-static void drun_mode_parse_display_format() {
+static void drun_mode_parse_display_format(void) {
   for (int i = 0; i < DRUN_MATCH_NUM_FIELDS; i++) {
     if (matching_entry_fields[i].enabled_display)
       continue;
@@ -1202,7 +1313,7 @@ static ModeMode drun_mode_result(Mode *sw, int mretv, char **input,
       retv = mode_completer_result(rmpd->completer, mretv, input, selected_line,
                                    &path);
       if (retv == MODE_EXIT) {
-        exec_cmd_entry(&(rmpd->entry_list[rmpd->selected_line]), path);
+        exec_cmd_entry(rmpd, &(rmpd->entry_list[rmpd->selected_line]), path);
       }
       g_free(path);
     }
@@ -1212,7 +1323,7 @@ static ModeMode drun_mode_result(Mode *sw, int mretv, char **input,
     switch (rmpd->entry_list[selected_line].type) {
     case DRUN_DESKTOP_ENTRY_TYPE_SERVICE:
     case DRUN_DESKTOP_ENTRY_TYPE_APPLICATION:
-      exec_cmd_entry(&(rmpd->entry_list[selected_line]), NULL);
+      exec_cmd_entry(rmpd, &(rmpd->entry_list[selected_line]), NULL);
       break;
     case DRUN_DESKTOP_ENTRY_TYPE_LINK:
       launch_link_entry(&(rmpd->entry_list[selected_line]));

@@ -96,6 +96,7 @@ static int box_get_desired_height(widget *wid, const int width) {
   box *b = (box *)wid;
   int spacing = distance_get_pixel(b->spacing, b->type);
   int height = 0;
+  int nw = width - widget_padding_get_padding_width(wid);
   if (b->type == ROFI_ORIENTATION_VERTICAL) {
     int active_widgets = 0;
     for (GList *iter = g_list_first(b->children); iter != NULL;
@@ -105,7 +106,7 @@ static int box_get_desired_height(widget *wid, const int width) {
         continue;
       }
       active_widgets++;
-      height += widget_get_desired_height(child, width);
+      height += widget_get_desired_height(child, nw);
     }
     if (active_widgets > 0) {
       height += (active_widgets - 1) * spacing;
@@ -117,7 +118,7 @@ static int box_get_desired_height(widget *wid, const int width) {
       if (!child->enabled) {
         continue;
       }
-      height = MAX(widget_get_desired_height(child, width), height);
+      height = MAX(widget_get_desired_height(child, nw), height);
     }
   }
   height += widget_padding_get_padding_height(wid);
@@ -283,34 +284,34 @@ static void box_free(widget *wid) {
   g_free(b);
 }
 
-void box_add(box *box, widget *child, gboolean expand) {
-  if (box == NULL) {
+void box_add(box *wid, widget *child, gboolean expand) {
+  if (wid == NULL) {
     return;
   }
   // Make sure box is width/heigh enough.
-  if (box->type == ROFI_ORIENTATION_VERTICAL) {
-    int width = box->widget.w;
+  if (wid->type == ROFI_ORIENTATION_VERTICAL) {
+    int width = wid->widget.w;
     width =
-        MAX(width, child->w + widget_padding_get_padding_width(WIDGET(box)));
-    box->widget.w = width;
+        MAX(width, child->w + widget_padding_get_padding_width(WIDGET(wid)));
+    wid->widget.w = width;
   } else {
-    int height = box->widget.h;
+    int height = wid->widget.h;
     height =
-        MAX(height, child->h + widget_padding_get_padding_height(WIDGET(box)));
-    box->widget.h = height;
+        MAX(height, child->h + widget_padding_get_padding_height(WIDGET(wid)));
+    wid->widget.h = height;
   }
   child->expand = rofi_theme_get_boolean(child, "expand", expand);
-  g_assert(child->parent == WIDGET(box));
-  box->children = g_list_append(box->children, (void *)child);
-  widget_update(WIDGET(box));
+  g_assert(child->parent == WIDGET(wid));
+  wid->children = g_list_append(wid->children, (void *)child);
+  widget_update(WIDGET(wid));
 }
 
-static void box_resize(widget *widget, short w, short h) {
-  box *b = (box *)widget;
+static void box_resize(widget *wid, short w, short h) {
+  box *b = (box *)wid;
   if (b->widget.w != w || b->widget.h != h) {
     b->widget.w = w;
     b->widget.h = h;
-    widget_update(widget);
+    widget_update(wid);
   }
 }
 

@@ -72,6 +72,8 @@ typedef struct {
   char delim;
   /** no custom */
   gboolean no_custom;
+  /** keep filter */
+  gboolean keep_filter;
 
   gboolean use_hot_keys;
 } ScriptModePrivateData;
@@ -100,6 +102,9 @@ void dmenuscript_parse_entry_extras(G_GNUC_UNUSED Mode *sw,
       entry->info = value;
     } else if (strcasecmp(key, "nonselectable") == 0) {
       entry->nonselectable = g_ascii_strcasecmp(value, "true") == 0;
+      g_free(value);
+    } else if (strcasecmp(key, "permanent") == 0) {
+      entry->permanent = g_ascii_strcasecmp(value, "true") == 0;
       g_free(value);
     } else if (strcasecmp(key, "urgent") == 0) {
       entry->urgent = g_ascii_strcasecmp(value, "true") == 0;
@@ -154,6 +159,8 @@ static void parse_header_entry(Mode *sw, char *line, ssize_t length) {
       pd->use_hot_keys = (strcasecmp(value, "true") == 0);
     } else if (strcasecmp(line, "keep-selection") == 0) {
       pd->keep_selection = (strcasecmp(value, "true") == 0);
+    } else if (strcasecmp(line, "keep-filter") == 0) {
+      pd->keep_filter = (strcasecmp(value, "true") == 0);
     } else if (strcasecmp(line, "new-selection") == 0) {
       pd->new_selection = (int64_t)g_ascii_strtoll(value, NULL, 0);
     } else if (strcasecmp(line, "data") == 0) {
@@ -181,6 +188,7 @@ static DmenuScriptEntry *execute_executor(Mode *sw, char *arg,
   // Reset these between runs.
   pd->new_selection = -1;
   pd->keep_selection = 0;
+  pd->keep_filter = 0;
   // Environment
   char **env = g_get_environ();
 
@@ -252,6 +260,7 @@ static DmenuScriptEntry *execute_executor(Mode *sw, char *arg,
             retv[(*length)].icon_fetch_uid = 0;
             retv[(*length)].icon_fetch_size = 0;
             retv[(*length)].nonselectable = FALSE;
+            retv[(*length)].permanent = FALSE;
             if (buf_length > 0 && (read_length > (ssize_t)buf_length)) {
               dmenuscript_parse_entry_extras(sw, &(retv[(*length)]),
                                              buffer + buf_length,
@@ -316,6 +325,9 @@ static ModeMode script_mode_result(Mode *sw, int mretv, char **input,
   ModeMode retv = MODE_EXIT;
   DmenuScriptEntry *new_list = NULL;
   unsigned int new_length = 0;
+  // store them as they might be different on next executor and reset.
+  gboolean keep_filter = rmpd->keep_filter;
+  gboolean keep_selection = rmpd->keep_selection;
 
   if ((mretv & MENU_CUSTOM_COMMAND)) {
     if (rmpd->use_hot_keys) {
@@ -336,6 +348,10 @@ static ModeMode script_mode_result(Mode *sw, int mretv, char **input,
       retv = (mretv & MENU_LOWER_MASK);
       return retv;
     }
+  } else if ((mretv & MENU_ENTRY_DELETE) && selected_line != UINT32_MAX) {
+    script_mode_reset_highlight(sw);
+    new_list = execute_executor(sw, rmpd->cmd_list[selected_line].entry, &new_length,
+                                3, &(rmpd->cmd_list[selected_line]));
   } else if ((mretv & MENU_OK) && rmpd->cmd_list[selected_line].entry != NULL) {
     if (rmpd->cmd_list[selected_line].nonselectable) {
       return RELOAD_DIALOG;
@@ -366,7 +382,7 @@ static ModeMode script_mode_result(Mode *sw, int mretv, char **input,
 
     rmpd->cmd_list = new_list;
     rmpd->cmd_list_length = new_length;
-    if (rmpd->keep_selection) {
+    if (keep_selection) {
       if (rmpd->new_selection >= 0 &&
           rmpd->new_selection < rmpd->cmd_list_length) {
         rofi_view_set_selected_line(rofi_view_get_active(),
@@ -374,12 +390,14 @@ static ModeMode script_mode_result(Mode *sw, int mretv, char **input,
       } else {
         rofi_view_set_selected_line(rofi_view_get_active(), selected_line);
       }
+    } else {
+      rofi_view_set_selected_line(rofi_view_get_active(), 0);
+    }
+    if (keep_filter == FALSE) {
       g_free(*input);
       *input = NULL;
-      retv = RELOAD_DIALOG;
-    } else {
-      retv = RESET_DIALOG;
     }
+    retv = RELOAD_DIALOG;
   }
   return retv;
 }
@@ -454,6 +472,12 @@ static int script_token_match(const Mode *sw, rofi_int_matcher **tokens,
   ScriptModePrivateData *rmpd = sw->private_data;
   /** Strip out the markup when matching. */
   char *esc = NULL;
+
+  if (rmpd->cmd_list[index].permanent == TRUE) {
+    // Always match
+    return 1;
+  }
+
   if (rmpd->do_markup) {
     pango_parse_markup(rmpd->cmd_list[index].entry, -1, 0, NULL, &esc, NULL,
                        NULL);

@@ -60,7 +60,22 @@ typedef struct {
 
   /** Whether to load and show icons  */
   gboolean show_icons;
+  
+  /** Custom command to generate preview icons */
+  char *preview_cmd;
 
+  /** Custom command to call when menu selection changes */
+  char *on_selection_changed;
+  /** Custom command to call when menu mode changes */
+  char *on_mode_changed;
+  /** Custom command to call when menu entry is accepted */
+  char *on_entry_accepted;
+  /** Custom command to call when menu is canceled */
+  char *on_menu_canceled;
+  /** Custom command to call when menu finds errors */
+  char *on_menu_error;
+  /** Custom command to call when menu screenshot is taken */
+  char *on_screenshot_taken;
   /** Terminal to use  */
   char *terminal_emulator;
   /** SSH client to use */
@@ -112,6 +127,8 @@ typedef struct {
 
   /** Search case sensitivity */
   unsigned int case_sensitive;
+  /** Smart case sensitivity like vim */
+  unsigned int case_smart;
   /** Cycle through in the element list */
   unsigned int cycle;
   /** Height of an element in number of rows */

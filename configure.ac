@@ -1,4 +1,4 @@
-AC_INIT([rofi], [1.7.5-dev], [https://github.com/davatorium/rofi/],[],[https://github.com/davatorium/rofi/discussions])
+AC_INIT([rofi], [1.7.8-dev], [https://github.com/davatorium/rofi/],[],[https://github.com/davatorium/rofi/discussions])
 
 AC_CONFIG_SRCDIR([source/rofi.c])
 AC_CONFIG_HEADER([config.h])
@@ -74,7 +74,7 @@ AM_PROG_AR
 dnl ---------------------------------------------------------------------
 dnl Base CFLAGS
 dnl ---------------------------------------------------------------------
-AM_CFLAGS="-Wall -Wextra -Wparentheses -Winline -pedantic  -Wunreachable-code"
+AM_CFLAGS="-Wall -Wextra -Wparentheses -Wno-inline -pedantic -Wno-overlength-strings -Wunreachable-code"
 
 dnl ---------------------------------------------------------------------
 dnl Enable source code coverage reporting for GCC
@@ -139,13 +139,13 @@ dnl ---------------------------------------------------------------------
 dnl PKG_CONFIG based dependencies
 dnl ---------------------------------------------------------------------
 glib_min_major="2"
-glib_min_minor="40"
+glib_min_minor="72"
 glib_min_version="${glib_min_major}.${glib_min_minor}"
 NK_INIT([bindings xdg-theme])
 PKG_CHECK_MODULES([glib],     [glib-2.0 >= ${glib_min_version} gio-unix-2.0 gmodule-2.0])
 AC_DEFINE_UNQUOTED([GLIB_VERSION_MIN_REQUIRED], [(G_ENCODE_VERSION(${glib_min_major},${glib_min_minor}))], [The lower GLib version supported])
 AC_DEFINE_UNQUOTED([GLIB_VERSION_MAX_ALLOWED], [(G_ENCODE_VERSION(${glib_min_major},${glib_min_minor}))], [The highest GLib version supported])
-GW_CHECK_XCB([xcb-aux xcb-xkb xkbcommon xkbcommon-x11 xcb-ewmh xcb-icccm xcb-cursor xcb-randr xcb-xinerama ])
+GW_CHECK_XCB([xcb-aux xcb-xkb xkbcommon xkbcommon-x11 xcb-ewmh xcb-icccm xcb-cursor xcb-randr xcb-xinerama xcb-keysyms ])
 
 
 AC_ARG_ENABLE([imdkit], AS_HELP_STRING([--enable-imdkit], [Build with checks using check library (default: disabled)]))
@@ -169,6 +169,13 @@ AC_ARG_ENABLE([check], AS_HELP_STRING([--disable-check], [Build with checks usin
 AS_IF([test "x${enable_check}" != "xno"], [ PKG_CHECK_MODULES([check],[check >= 0.11.0], [HAVE_CHECK=1]) ])
 AM_CONDITIONAL([USE_CHECK],  [test "x${enable_check}" != "xno" && test "$HAVE_CHECK" -eq 1])
 
+dnl ---------------------------------------------------------------------
+dnl Build man pages
+dnl ---------------------------------------------------------------------
+AC_ARG_ENABLE([man], AS_HELP_STRING([--disable-man], [Build man pages (default: enabled)]))
+
+AS_IF([test "x$enable_man" != "xno" ], [ AC_CHECK_PROG([pandoc], pandoc, [yes])])
+AM_CONDITIONAL([FOUND_PANDOC], [test "x$pandoc" = xyes])
 
 dnl ---------------------------------------------------------------------
 dnl Gets the resource compile tool path.
@@ -209,6 +216,11 @@ if test "x${enable_check}" != "xno" && test "$HAVE_CHECK" -eq 1; then
 echo "Check based tests            Enabled"
 else
 echo "Check based tests            Disabled"
+fi
+if test "x${enable_man}" != "xno" && test "x$pandoc" = "xyes"; then
+echo "Build man pages              Enabled"
+else
+echo "Build man pages              Disabled"
 fi
 echo "-------------------------------------"
 echo "Now type 'make' to build"

@@ -1,4 +1,4 @@
-# ROFI-SCRIPT 5 rofi-script
+# rofi-script(5)
 
 ## NAME
 
@@ -59,6 +59,7 @@ An integer number with the current state:
 - **0**: Initial call of script.
 - **1**: Selected an entry.
 - **2**: Selected a custom entry.
+- **3**: Deleted an entry.
 - **10-28**: Custom keybinding 1-19 ( need to be explicitly enabled by script ).
 
 ### `ROFI_INFO`
@@ -109,6 +110,8 @@ The following extra options exists:
 -   **keep-selection**: If set, the selection is not moved to the first entry,
     but the current position is maintained. The filter is cleared.
 
+-   **keep-filter**: If set, the filter is not cleared.
+
 -   **new-selection**: If `keep-selection` is set, this allows you to override
     the selected entry (absolute position).
 
@@ -142,6 +145,8 @@ The following options are supported:
 -   **meta**: Specify invisible search terms used for filtering.
 
 -   **nonselectable**: If true the row cannot activated.
+
+-   **permanent**: If true the row always shows, independent of filter.
 
 -   **info**: Info that, on selection, gets placed in the `ROFI_INFO`
     environment variable. This entry does not get searched for filtering.
@@ -180,10 +185,19 @@ To specify a script there are the following options:
 - Specify an absolute path to the script.
 - The script is executable and located in your $PATH
 
-Scripts located in the following location are loaded on startup:
+Scripts located in the following location are **loaded** on startup
+and can be directly launched based on the filename (without extension):
 
-- The script is in `$XDG_CONFIG_PATH/rofi/scripts/`, this is usually
+- The script is in `$XDG_CONFIG_HOME/rofi/scripts/`, this is usually
   `~/.config/rofi/scripts/`.
+
+If you have a script 'mymode.sh' in this folder you can open it using:
+
+```bash
+rofi -show mymode
+```
+
+See `rofi -h` output for a list of detected scripts.
 
 ## SEE ALSO
 

@@ -130,6 +130,50 @@ static XrmOption xrmOptions[] = {
      CONFIG_DEFAULT},
 
     {xrm_String,
+     "preview-cmd",
+     {.str = &config.preview_cmd},
+     NULL,
+     "Custom command to generate preview icons",
+     CONFIG_DEFAULT},
+
+    {xrm_String,
+     "on-selection-changed",
+     {.str = &config.on_selection_changed},
+     NULL,
+     "Custom command to call when menu selection changes",
+     CONFIG_DEFAULT},
+    {xrm_String,
+     "on-mode-changed",
+     {.str = &config.on_mode_changed},
+     NULL,
+     "Custom command to call when menu mode changes",
+     CONFIG_DEFAULT},
+    {xrm_String,
+     "on-entry-accepted",
+     {.str = &config.on_entry_accepted},
+     NULL,
+     "Custom command to call when menu entry is accepted",
+     CONFIG_DEFAULT},
+    {xrm_String,
+     "on-menu-canceled",
+     {.str = &config.on_menu_canceled},
+     NULL,
+     "Custom command to call when menu is canceled",
+     CONFIG_DEFAULT},
+    {xrm_String,
+     "on-menu-error",
+     {.str = &config.on_menu_error},
+     NULL,
+     "Custom command to call when menu finds errors",
+     CONFIG_DEFAULT},
+    {xrm_String,
+     "on-screenshot-taken",
+     {.str = &config.on_screenshot_taken},
+     NULL,
+     "Custom command to call when menu screenshot is taken",
+     CONFIG_DEFAULT},
+
+    {xrm_String,
      "terminal",
      {.str = &config.terminal_emulator},
      NULL,
@@ -245,6 +289,12 @@ static XrmOption xrmOptions[] = {
      {.num = &config.case_sensitive},
      NULL,
      "Set case-sensitivity",
+     CONFIG_DEFAULT},
+    {xrm_Boolean,
+     "case-smart",
+     {.num = &config.case_smart},
+     NULL,
+     "Set smartcase like vim (determine case-sensitivity by input)",
      CONFIG_DEFAULT},
     {xrm_Boolean,
      "cycle",
@@ -700,13 +750,14 @@ static gboolean __config_parser_set_property(XrmOption *option,
     *(option->value.num) = (p->value.b);
     option->source = (option->source & ~3) | CONFIG_FILE_THEME;
   } else if (option->type == xrm_Char) {
-    if (p->type != P_CHAR) {
-      *error = g_strdup_printf(
-          "Option: %s needs to be set with a character not a %s.", option->name,
-          PropertyTypeName[p->type]);
+
+    if (p->type != P_STRING) {
+      *error =
+          g_strdup_printf("Option: %s needs to be set with a string not a %s.",
+                          option->name, PropertyTypeName[p->type]);
       return TRUE;
     }
-    *(option->value.charc) = (p->value.c);
+    *(option->value.charc) = (p->value.s[0]);
     option->source = (option->source & ~3) | CONFIG_FILE_THEME;
   } else {
     // TODO add type
