@@ -286,8 +286,8 @@ static gpointer read_input_thread(gpointer userdata) {
       if (FD_ISSET(fd, &rfds)) {
         ssize_t readbytes = 0;
         if ((nread + 1024) > len) {
-          line = g_realloc(line, (nread + 1024));
-          len = nread + 1024;
+          line = g_realloc(line, (len + 2048));
+          len = len + 2048;
         }
         readbytes = read(fd, &line[nread], 1023);
         if (readbytes > 0) {

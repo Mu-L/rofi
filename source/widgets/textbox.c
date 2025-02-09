@@ -251,10 +251,10 @@ textbox *textbox_create(widget *parent, WidgetType type, const char *name,
       tb->placeholder = g_markup_escape_text(placeholder, -1);
     }
   }
-  
+
   const char *password_mask_char =
       rofi_theme_get_string(WIDGET(tb), "password-mask", NULL);
-  if (password_mask_char == NULL || (*password_mask_char) == '\0'){
+  if (password_mask_char == NULL || (*password_mask_char) == '\0') {
     tb->password_mask_char = "*";
   } else {
     tb->password_mask_char = password_mask_char;
@@ -350,7 +350,7 @@ static void __textbox_update_pango_text(textbox *tb) {
     size_t mask_len = strlen(tb->password_mask_char);
     char string[text_len * mask_len + 1];
     for (size_t offset = 0; offset < text_len * mask_len; offset += mask_len) {
-        memcpy(string + offset, tb->password_mask_char, mask_len);
+      memcpy(string + offset, tb->password_mask_char, mask_len);
     }
     string[text_len * mask_len] = '\0';
     pango_layout_set_text(tb->layout, string, -1);
@@ -501,7 +501,6 @@ static void textbox_draw(widget *wid, cairo_t *draw) {
     return;
   }
   textbox *tb = (textbox *)wid;
-  int dot_offset = 0;
 
   if (tb->changed) {
     __textbox_update_pango_text(tb);
@@ -534,7 +533,7 @@ static void textbox_draw(widget *wid, cairo_t *draw) {
   {
     int rem =
         MAX(0, tb->widget.w - widget_padding_get_padding_width(WIDGET(tb)) -
-                   line_width - dot_offset);
+                   line_width);
     switch (pango_layout_get_alignment(tb->layout)) {
     case PANGO_ALIGN_CENTER:
       x = rem * (tb->xalign - 0.5);
@@ -543,7 +542,7 @@ static void textbox_draw(widget *wid, cairo_t *draw) {
       x = rem * (tb->xalign - 1.0);
       break;
     default:
-      x = rem * tb->xalign + dot_offset;
+      x = rem * tb->xalign;
       break;
     }
     x += widget_padding_get_left(WIDGET(tb));
