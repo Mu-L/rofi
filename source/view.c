@@ -143,6 +143,8 @@ struct {
   gboolean delayed_mode;
   /** timeout handling */
   guint user_timeout;
+  /** timeout overlay */
+  guint overlay_timeout;
   /** debug counter for redraws */
   unsigned long long count;
   /** redraw idle time. */
@@ -172,6 +174,7 @@ struct {
                 .max_refilter_time = 0.0,
                 .delayed_mode = FALSE,
                 .user_timeout = 0,
+                .overlay_timeout = 0,
                 .count = 0L,
                 .repaint_source = 0,
                 .fullscreen = FALSE,
@@ -218,8 +221,8 @@ static void screenshot_taken_user_callback(const char *path) {
 
   char **args = NULL;
   int argv = 0;
-  helper_parse_setup(config.on_screenshot_taken, &args, &argv, "{path}",
-                                        path, (char *)0);
+  helper_parse_setup(config.on_screenshot_taken, &args, &argv, "{path}", path,
+                     (char *)0);
   if (args != NULL)
     helper_execute(NULL, args, "", config.on_screenshot_taken, NULL);
 }
@@ -1299,17 +1302,18 @@ inline static void rofi_view_nav_last(RofiViewState *state) {
   // state->selected = state->filtered_lines - 1;
   listview_set_selected(state->list_view, -1);
 }
-static void selection_changed_user_callback(unsigned int index, RofiViewState *state) {
+static void selection_changed_user_callback(unsigned int index,
+                                            RofiViewState *state) {
   if (config.on_selection_changed == NULL)
     return;
 
   int fstate = 0;
   char *text = mode_get_display_value(state->sw, state->line_map[index],
-                                        &fstate, NULL, TRUE);
+                                      &fstate, NULL, TRUE);
   char **args = NULL;
   int argv = 0;
-  helper_parse_setup(config.on_selection_changed, &args, &argv, "{entry}",
-                                        text, (char *)0);
+  helper_parse_setup(config.on_selection_changed, &args, &argv, "{entry}", text,
+                     (char *)0);
   if (args != NULL)
     helper_execute(NULL, args, "", config.on_selection_changed, NULL);
   g_free(text);
@@ -1486,7 +1490,7 @@ static gboolean rofi_view_refilter_real(RofiViewState *state) {
     state->case_sensitive = parse_case_sensitivity(state->text->text);
     state->tokens = helper_tokenize(pattern, state->case_sensitive);
 
-    if ( config.case_smart && state->case_indicator ) {
+    if (config.case_smart && state->case_indicator) {
       textbox_text(state->case_indicator, get_matching_state(state));
     }
     /**
@@ -1979,6 +1983,16 @@ static void rofi_view_trigger_global_action(KeyBindingAction action) {
     }
     break;
   }
+  case MATCHER_UP:
+    helper_select_next_matching_mode();
+    rofi_view_refilter(state);
+    rofi_view_set_overlay_timeout(state, helper_get_matching_mode_str());
+    break;
+  case MATCHER_DOWN:
+    helper_select_previous_matching_mode();
+    rofi_view_refilter(state);
+    rofi_view_set_overlay_timeout(state, helper_get_matching_mode_str());
+    break;
   }
 }
 
@@ -2135,22 +2149,20 @@ static void rofi_quit_user_callback(RofiViewState *state) {
       return;
     // Pass selected text to custom command
     char *text = mode_get_display_value(state->sw, state->line_map[selected],
-                                          &fstate, NULL, TRUE);
+                                        &fstate, NULL, TRUE);
     char **args = NULL;
     int argv = 0;
-    helper_parse_setup(config.on_entry_accepted, &args, &argv, "{entry}",
-                                          text, (char *)0);
+    helper_parse_setup(config.on_entry_accepted, &args, &argv, "{entry}", text,
+                       (char *)0);
     if (args != NULL)
       helper_execute(NULL, args, "", config.on_entry_accepted, NULL);
     g_free(text);
-  } else if(state->retv & MENU_CANCEL) {
+  } else if (state->retv & MENU_CANCEL) {
     if (config.on_menu_canceled == NULL)
       return;
     helper_execute_command(NULL, config.on_menu_canceled, FALSE, NULL);
-  } else if (state->retv & MENU_NEXT ||
-             state->retv & MENU_PREVIOUS ||
-             state->retv & MENU_QUICK_SWITCH ||
-             state->retv & MENU_COMPLETE) {
+  } else if (state->retv & MENU_NEXT || state->retv & MENU_PREVIOUS ||
+             state->retv & MENU_QUICK_SWITCH || state->retv & MENU_COMPLETE) {
     if (config.on_mode_changed == NULL)
       return;
     // TODO: pass mode name to custom command
@@ -2651,8 +2663,8 @@ static void rofi_error_user_callback(const char *msg) {
 
   char **args = NULL;
   int argv = 0;
-  helper_parse_setup(config.on_menu_error, &args, &argv, "{error}",
-                                        msg, (char *)0);
+  helper_parse_setup(config.on_menu_error, &args, &argv, "{error}", msg,
+                     (char *)0);
   if (args != NULL)
     helper_execute(NULL, args, "", config.on_menu_error, NULL);
 }
@@ -2721,6 +2733,10 @@ void rofi_view_cleanup(void) {
   if (CacheState.refilter_timeout > 0) {
     g_source_remove(CacheState.refilter_timeout);
     CacheState.refilter_timeout = 0;
+  }
+  if (CacheState.overlay_timeout) {
+    g_source_remove(CacheState.overlay_timeout);
+    CacheState.overlay_timeout = 0;
   }
   if (CacheState.user_timeout > 0) {
     g_source_remove(CacheState.user_timeout);
@@ -2825,9 +2841,37 @@ void rofi_view_workers_finalize(void) {
 }
 Mode *rofi_view_get_mode(RofiViewState *state) { return state->sw; }
 
+static gboolean rofi_view_overlay_timeout(G_GNUC_UNUSED gpointer user_data) {
+  RofiViewState *state = rofi_view_get_active();
+  if (state) {
+    widget_disable(WIDGET(state->overlay));
+  }
+  CacheState.overlay_timeout = 0;
+  rofi_view_queue_redraw();
+  return G_SOURCE_REMOVE;
+}
+
+void rofi_view_set_overlay_timeout(RofiViewState *state, const char *text) {
+  if (state->overlay == NULL || state->list_view == NULL) {
+    return;
+  }
+  if (text == NULL) {
+    widget_disable(WIDGET(state->overlay));
+    return;
+  }
+  rofi_view_set_overlay(state, text);
+  int timeout = rofi_theme_get_integer(WIDGET(state->overlay), "timeout", 3);
+  CacheState.overlay_timeout =
+      g_timeout_add_seconds(timeout, rofi_view_overlay_timeout, state);
+}
+
 void rofi_view_set_overlay(RofiViewState *state, const char *text) {
   if (state->overlay == NULL || state->list_view == NULL) {
     return;
+  }
+  if (CacheState.overlay_timeout > 0) {
+    g_source_remove(CacheState.overlay_timeout);
+    CacheState.overlay_timeout = 0;
   }
   if (text == NULL) {
     widget_disable(WIDGET(state->overlay));

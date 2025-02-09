@@ -442,6 +442,19 @@ ConfigEntry *rofi_config_find_widget(const char *name, const char *state,
  */
 Property *rofi_theme_find_property(ConfigEntry *widget, PropertyType type,
                                    const char *property, gboolean exact);
+
+/**
+ * @returns get a human readable string with the current matching method.
+ */
+const char *helper_get_matching_mode_str(void);
+/**
+ * Switch to the next matching method.
+ */
+void helper_select_next_matching_mode(void);
+/**
+ * Switch to the previous matching method.
+ */
+void helper_select_previous_matching_mode(void);
 G_END_DECLS
 
 /**@} */
