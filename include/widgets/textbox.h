@@ -81,7 +81,9 @@ typedef struct {
   TBFontConfig *tbfc;
 
   PangoEllipsizeMode emode;
-  //
+  
+  const char *password_mask_char;
+
   const char *theme_name;
 } textbox;
 

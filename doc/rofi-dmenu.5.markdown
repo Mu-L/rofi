@@ -1,4 +1,4 @@
-# ROFI-DMENU 5 rofi-dmenu
+# rofi-dmenu(5)
 
 ## NAME
 
@@ -159,7 +159,7 @@ Hide the input text. This should not be considered secure!
 `-markup-rows`
 
 Tell **rofi** that DMenu input is Pango markup encoded, and should be rendered.
-See [here](https://developer.gnome.org/pygtk/stable/pango-markup-language.html)
+See [here](https://docs.gtk.org/Pango/pango_markup.html)
 for details about Pango markup.
 
 `-multi-select`

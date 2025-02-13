@@ -31,6 +31,7 @@
 #include "helper.h"
 #include "keyb.h"
 #include "mode.h"
+#include "timings.h"
 #include "view.h"
 #include "widgets/textbox.h"
 #include <ctype.h>
@@ -140,6 +141,22 @@ static void textbox_initialize_font(textbox *tb) {
         PangoRectangle rect;
         pango_layout_get_pixel_extents(layout, NULL, &rect);
         tbfc->height = rect.y + rect.height;
+
+        // Try to find height from font. Might be slow?
+        TICK_N("Get font height");
+        PangoFont *context_font = pango_context_load_font(p_context, tbfc->pfd);
+        if (context_font) {
+          PangoFontMetrics *fm = pango_font_get_metrics(context_font, NULL);
+          if (fm) {
+            int h = pango_font_metrics_get_height(fm) / PANGO_SCALE;
+            if (h > 0) {
+              tbfc->height = h;
+            }
+            pango_font_metrics_unref(fm);
+          }
+          g_object_unref(context_font);
+        }
+        TICK_N("Get font height");
         g_object_unref(layout);
 
         // Cast away consts. (*yuck*) because table_insert does not know it is
@@ -234,6 +251,15 @@ textbox *textbox_create(widget *parent, WidgetType type, const char *name,
       tb->placeholder = g_markup_escape_text(placeholder, -1);
     }
   }
+
+  const char *password_mask_char =
+      rofi_theme_get_string(WIDGET(tb), "password-mask", NULL);
+  if (password_mask_char == NULL || (*password_mask_char) == '\0') {
+    tb->password_mask_char = "*";
+  } else {
+    tb->password_mask_char = password_mask_char;
+  }
+
   textbox_text(tb, txt ? txt : "");
   textbox_cursor_end(tb);
 
@@ -320,11 +346,14 @@ static void __textbox_update_pango_text(textbox *tb) {
   }
   tb->show_placeholder = FALSE;
   if ((tb->flags & TB_PASSWORD) == TB_PASSWORD) {
-    size_t l = g_utf8_strlen(tb->text, -1);
-    char string[l + 1];
-    memset(string, '*', l);
-    string[l] = '\0';
-    pango_layout_set_text(tb->layout, string, l);
+    size_t text_len = g_utf8_strlen(tb->text, -1);
+    size_t mask_len = strlen(tb->password_mask_char);
+    char string[text_len * mask_len + 1];
+    for (size_t offset = 0; offset < text_len * mask_len; offset += mask_len) {
+      memcpy(string + offset, tb->password_mask_char, mask_len);
+    }
+    string[text_len * mask_len] = '\0';
+    pango_layout_set_text(tb->layout, string, -1);
   } else if (tb->flags & TB_MARKUP || tb->tbft & MARKUP) {
     pango_layout_set_markup(tb->layout, tb->text, -1);
   } else {
@@ -472,7 +501,6 @@ static void textbox_draw(widget *wid, cairo_t *draw) {
     return;
   }
   textbox *tb = (textbox *)wid;
-  int dot_offset = 0;
 
   if (tb->changed) {
     __textbox_update_pango_text(tb);
@@ -502,9 +530,10 @@ static void textbox_draw(widget *wid, cairo_t *draw) {
   // use text color as fallback for themes that don't specify the cursor color
   rofi_theme_get_color(WIDGET(tb), "text-color", draw);
 
-  { int rem =
-          MAX(0, tb->widget.w - widget_padding_get_padding_width(WIDGET(tb)) -
-                     line_width - dot_offset);
+  {
+    int rem =
+        MAX(0, tb->widget.w - widget_padding_get_padding_width(WIDGET(tb)) -
+                   line_width);
     switch (pango_layout_get_alignment(tb->layout)) {
     case PANGO_ALIGN_CENTER:
       x = rem * (tb->xalign - 0.5);
@@ -513,7 +542,7 @@ static void textbox_draw(widget *wid, cairo_t *draw) {
       x = rem * (tb->xalign - 1.0);
       break;
     default:
-      x = rem * tb->xalign + dot_offset;
+      x = rem * tb->xalign;
       break;
     }
     x += widget_padding_get_left(WIDGET(tb));
@@ -524,11 +553,20 @@ static void textbox_draw(widget *wid, cairo_t *draw) {
     // We want to place the cursor based on the text shown.
     const char *text = pango_layout_get_text(tb->layout);
     // Clamp the position, should not be needed, but we are paranoid.
-    int cursor_offset = MIN(tb->cursor, g_utf8_strlen(text, -1));
+    size_t cursor_offset;
+
+    if ((tb->flags & TB_PASSWORD) == TB_PASSWORD) {
+      // Calculate cursor position based on mask length
+      size_t mask_len = strlen(tb->password_mask_char);
+      cursor_offset = MIN(tb->cursor * mask_len, strlen(text));
+    } else {
+      cursor_offset = MIN(tb->cursor, g_utf8_strlen(text, -1));
+      // convert to byte location.
+      char *offset = g_utf8_offset_to_pointer(text, cursor_offset);
+      cursor_offset = offset - text;
+    }
     PangoRectangle pos;
-    // convert to byte location.
-    char *offset = g_utf8_offset_to_pointer(text, cursor_offset);
-    pango_layout_get_cursor_pos(tb->layout, offset - text, &pos, NULL);
+    pango_layout_get_cursor_pos(tb->layout, cursor_offset, &pos, NULL);
     int cursor_x = pos.x / PANGO_SCALE;
     int cursor_y = pos.y / PANGO_SCALE;
     int cursor_height = pos.height / PANGO_SCALE;
@@ -942,6 +980,12 @@ void textbox_set_pango_context(const char *font, PangoContext *p) {
   PangoRectangle rect;
   pango_layout_get_pixel_extents(layout, NULL, &rect);
   tbfc->height = rect.y + rect.height;
+  if (tbfc->metrics) {
+    int h = pango_font_metrics_get_height(tbfc->metrics) / PANGO_SCALE;
+    if (h > 0) {
+      tbfc->height = h;
+    }
+  }
   g_object_unref(layout);
   tbfc_default = tbfc;
 

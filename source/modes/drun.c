@@ -25,10 +25,11 @@
  *
  */
 
-/** The log domain of this dialog. */
 #define G_LOG_DOMAIN "Modes.DRun"
-
 #include "config.h"
+/** The log domain of this dialog. */
+#include "glib.h"
+
 #ifdef ENABLE_DRUN
 #include <limits.h>
 #include <stdio.h>
@@ -43,6 +44,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#include <gio/gio.h>
 
 #include "helper.h"
 #include "history.h"
@@ -223,6 +226,8 @@ struct _DRunModePrivateData {
   char *old_completer_input;
   uint32_t selected_line;
   char *old_input;
+
+  gboolean disable_dbusactivate;
 };
 
 struct RegexEvalArg {
@@ -230,6 +235,7 @@ struct RegexEvalArg {
   const char *path;
   gboolean success;
 };
+static void drun_entry_clear(DRunModeEntry *e);
 
 static gboolean drun_helper_eval_cb(const GMatchInfo *info, GString *res,
                                     gpointer data) {
@@ -329,7 +335,92 @@ static void launch_link_entry(DRunModeEntry *e) {
     g_free(path);
   }
 }
-static void exec_cmd_entry(DRunModeEntry *e, const char *path) {
+static gchar *app_path_for_id(const gchar *app_id) {
+  gchar *path;
+  gint i;
+
+  path = g_strconcat("/", app_id, NULL);
+  for (i = 0; path[i]; i++) {
+    if (path[i] == '.')
+      path[i] = '/';
+    if (path[i] == '-')
+      path[i] = '_';
+  }
+
+  return path;
+}
+static GVariant *app_get_platform_data(void) {
+  GVariantBuilder builder;
+  const gchar *startup_id;
+
+  g_variant_builder_init(&builder, G_VARIANT_TYPE_VARDICT);
+
+  if ((startup_id = g_getenv("DESKTOP_STARTUP_ID")))
+    g_variant_builder_add(&builder, "{sv}", "desktop-startup-id",
+                          g_variant_new_string(startup_id));
+
+  if ((startup_id = g_getenv("XDG_ACTIVATION_TOKEN")))
+    g_variant_builder_add(&builder, "{sv}", "activation-token",
+                          g_variant_new_string(startup_id));
+
+  return g_variant_builder_end(&builder);
+}
+
+static gboolean exec_dbus_entry(DRunModeEntry *e, const char *path) {
+  GVariantBuilder files;
+  GDBusConnection *session;
+  GError *error = NULL;
+  gchar *object_path;
+  GVariant *result;
+  GVariant *params = NULL;
+  const char *method = "Activate";
+  g_debug("Trying to launch desktop file using dbus activation.");
+
+  session = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
+  if (!session) {
+    g_warning("unable to connect to D-Bus: %s\n", error->message);
+    g_error_free(error);
+    return FALSE;
+  }
+
+  object_path = app_path_for_id(e->app_id);
+
+  g_variant_builder_init(&files, G_VARIANT_TYPE_STRING_ARRAY);
+
+  if (path != NULL) {
+    method = "Open";
+    params = g_variant_new("(as@a{sv})", &files, app_get_platform_data());
+  } else {
+    params = g_variant_new("(@a{sv})", app_get_platform_data());
+  }
+  if (path) {
+    GFile *file = g_file_new_for_commandline_arg(path);
+    g_variant_builder_add_value(
+        &files, g_variant_new_take_string(g_file_get_uri(file)));
+    g_object_unref(file);
+  }
+  // Wait 1500ms, otherwise assume failed.
+  result = g_dbus_connection_call_sync(
+      session, e->app_id, object_path, "org.freedesktop.Application", method,
+      params, G_VARIANT_TYPE_UNIT, G_DBUS_CALL_FLAGS_NONE, 1500, NULL, &error);
+
+  g_free(object_path);
+
+  if (result) {
+    g_variant_unref(result);
+  } else {
+    g_warning("error sending %s message to application: %s\n", "Open",
+              error->message);
+    g_error_free(error);
+    g_object_unref(session);
+    return FALSE;
+  }
+  g_object_unref(session);
+  return TRUE;
+}
+
+static void exec_cmd_entry(DRunModePrivateData *pd, DRunModeEntry *e,
+                           const char *path) {
   GError *error = NULL;
   GRegex *reg = g_regex_new("%[a-zA-Z%]", 0, 0, &error);
   if (error != NULL) {
@@ -398,15 +489,30 @@ static void exec_cmd_entry(DRunModeEntry *e, const char *path) {
         g_key_file_get_string(e->key_file, e->action, "StartupWMClass", NULL);
   }
 
-  // Returns false if not found, if key not found, we don't want run in
-  // terminal.
-  gboolean terminal =
-      g_key_file_get_boolean(e->key_file, e->action, "Terminal", NULL);
-  if (helper_execute_command(exec_path, fp, terminal, sn ? &context : NULL)) {
-    char *drun_cach_path = g_build_filename(cache_dir, DRUN_CACHE_FILE, NULL);
-    // Store it based on the unique identifiers (desktop_id).
-    history_set(drun_cach_path, e->desktop_id);
-    g_free(drun_cach_path);
+  /**
+   * If its required to launch via dbus, do that.
+   */
+  gboolean launched = FALSE;
+  if (!(pd->disable_dbusactivate)) {
+    if (g_key_file_get_boolean(e->key_file, e->action, "DBusActivatable",
+                               NULL)) {
+      printf("DBus launch\n");
+      launched = exec_dbus_entry(e, path);
+    }
+  }
+  if (launched == FALSE) {
+    /** Fallback to old style if not set. */
+
+    // Returns false if not found, if key not found, we don't want run in
+    // terminal.
+    gboolean terminal =
+        g_key_file_get_boolean(e->key_file, e->action, "Terminal", NULL);
+    if (helper_execute_command(exec_path, fp, terminal, sn ? &context : NULL)) {
+      char *drun_cach_path = g_build_filename(cache_dir, DRUN_CACHE_FILE, NULL);
+      // Store it based on the unique identifiers (desktop_id).
+      history_set(drun_cach_path, e->desktop_id);
+      g_free(drun_cach_path);
+    }
   }
   g_free(wmclass);
   g_free(exec_path);
@@ -859,18 +965,19 @@ static void drun_write_str(FILE *fd, const char *str) {
 static void drun_write_integer(FILE *fd, int32_t val) {
   fwrite(&val, sizeof(val), 1, fd);
 }
-static void drun_read_integer(FILE *fd, int32_t *type) {
+static gboolean drun_read_integer(FILE *fd, int32_t *type) {
   if (fread(type, sizeof(int32_t), 1, fd) != 1) {
     g_warning("Failed to read entry, cache corrupt?");
-    return;
+    return TRUE;
   }
+  return FALSE;
 }
-static void drun_read_string(FILE *fd, char **str) {
+static gboolean drun_read_string(FILE *fd, char **str) {
   size_t l = 0;
 
   if (fread(&l, sizeof(l), 1, fd) != 1) {
     g_warning("Failed to read entry, cache corrupt?");
-    return;
+    return TRUE;
   }
   (*str) = NULL;
   if (l > 0) {
@@ -879,8 +986,10 @@ static void drun_read_string(FILE *fd, char **str) {
     (*str) = g_malloc(l);
     if (fread((*str), 1, l, fd) != l) {
       g_warning("Failed to read entry, cache corrupt?");
+      return TRUE;
     }
   }
+  return FALSE;
 }
 static void drun_write_strv(FILE *fd, char **str) {
   guint vl = (str == NULL ? 0 : g_strv_length(str));
@@ -889,20 +998,23 @@ static void drun_write_strv(FILE *fd, char **str) {
     drun_write_str(fd, str[index]);
   }
 }
-static void drun_read_stringv(FILE *fd, char ***str) {
+static gboolean drun_read_stringv(FILE *fd, char ***str) {
   guint vl = 0;
   (*str) = NULL;
   if (fread(&vl, sizeof(vl), 1, fd) != 1) {
     g_warning("Failed to read entry, cache corrupt?");
-    return;
+    return TRUE;
   }
   if (vl > 0) {
     // Include terminating NULL entry.
     (*str) = g_malloc0((vl + 1) * sizeof(**str));
     for (guint index = 0; index < vl; index++) {
-      drun_read_string(fd, &((*str)[index]));
+      if (drun_read_string(fd, &((*str)[index]))) {
+        return TRUE;
+      }
     }
   }
+  return FALSE;
 }
 
 static void write_cache(DRunModePrivateData *pd, const char *cache_file) {
@@ -993,29 +1105,82 @@ static gboolean drun_read_cache(DRunModePrivateData *pd,
   pd->entry_list =
       g_malloc0(pd->cmd_list_length_actual * sizeof(*(pd->entry_list)));
 
-  for (unsigned int index = 0; index < pd->cmd_list_length; index++) {
+  int error = 0;
+  for (unsigned int index = 0; !error && index < pd->cmd_list_length; index++) {
     DRunModeEntry *entry = &(pd->entry_list[index]);
 
-    drun_read_string(fd, &(entry->action));
-    drun_read_string(fd, &(entry->root));
-    drun_read_string(fd, &(entry->path));
-    drun_read_string(fd, &(entry->app_id));
-    drun_read_string(fd, &(entry->desktop_id));
-    drun_read_string(fd, &(entry->icon_name));
-    drun_read_string(fd, &(entry->exec));
-    drun_read_string(fd, &(entry->name));
-    drun_read_string(fd, &(entry->generic_name));
+    if (drun_read_string(fd, &(entry->action))) {
+      error = 1;
+      continue;
+    }
+    if (drun_read_string(fd, &(entry->root))) {
+      error = 1;
+      continue;
+    }
+    if (drun_read_string(fd, &(entry->path))) {
+      error = 1;
+      continue;
+    }
+    if (drun_read_string(fd, &(entry->app_id))) {
+      error = 1;
+      continue;
+    }
+    if (drun_read_string(fd, &(entry->desktop_id))) {
+      error = 1;
+      continue;
+    }
+    if (drun_read_string(fd, &(entry->icon_name))) {
+      error = 1;
+      continue;
+    }
+    if (drun_read_string(fd, &(entry->exec))) {
+      error = 1;
+      continue;
+    }
+    if (drun_read_string(fd, &(entry->name))) {
+      error = 1;
+      continue;
+    }
+    if (drun_read_string(fd, &(entry->generic_name))) {
+      error = 1;
+      continue;
+    }
 
-    drun_read_stringv(fd, &(entry->categories));
-    drun_read_stringv(fd, &(entry->keywords));
+    if (drun_read_stringv(fd, &(entry->categories))) {
+      error = 1;
+      continue;
+    }
+    if (drun_read_stringv(fd, &(entry->keywords))) {
+      error = 1;
+      continue;
+    }
 
-    drun_read_string(fd, &(entry->comment));
+    if (drun_read_string(fd, &(entry->comment))) {
+      error = 1;
+      continue;
+    }
+    if (drun_read_string(fd, &(entry->url))) {
+      error = 1;
+      continue;
+    }
     int32_t type = 0;
-    drun_read_integer(fd, &(type));
+    if (drun_read_integer(fd, &(type))) {
+      error = 1;
+      continue;
+    }
     entry->type = type;
   }
 
   fclose(fd);
+  if (error) {
+    for (size_t i = 0; i < pd->cmd_list_length; i++) {
+      drun_entry_clear(&(pd->entry_list[i]));
+    }
+    g_free(pd->entry_list);
+    pd->cmd_list_length = 0;
+    pd->cmd_list_length_actual = 0;
+    return TRUE;
+  }
   TICK_N("DRUN Read CACHE: stop");
   return FALSE;
 }
@@ -1069,6 +1234,11 @@ static void get_apps(DRunModePrivateData *pd) {
       }
       TICK_N("Get Desktop apps (system dirs)");
     }
+    pd->disable_dbusactivate = FALSE;
+    p = rofi_theme_find_property(wid, P_BOOLEAN, "DBusActivatable", TRUE);
+    if (p != NULL && (p->type == P_BOOLEAN && p->value.b == FALSE)) {
+      pd->disable_dbusactivate = TRUE;
+    }
     get_apps_history(pd);
 
     g_qsort_with_data(pd->entry_list, pd->cmd_list_length,
@@ -1077,11 +1247,13 @@ static void get_apps(DRunModePrivateData *pd) {
     TICK_N("Sorting done.");
 
     write_cache(pd, cache_file);
+  } else {
+    g_debug("Read drun entries from cache.");
   }
   g_free(cache_file);
 }
 
-static void drun_mode_parse_entry_fields() {
+static void drun_mode_parse_entry_fields(void) {
   char *savept = NULL;
   // Make a copy, as strtok will modify it.
   char *switcher_str = g_strdup(config.drun_match_fields);
@@ -1117,7 +1289,7 @@ static void drun_mode_parse_entry_fields() {
   g_free(switcher_str);
 }
 
-static void drun_mode_parse_display_format() {
+static void drun_mode_parse_display_format(void) {
   for (int i = 0; i < DRUN_MATCH_NUM_FIELDS; i++) {
     if (matching_entry_fields[i].enabled_display)
       continue;
@@ -1156,6 +1328,9 @@ static int drun_mode_init(Mode *sw) {
   return TRUE;
 }
 static void drun_entry_clear(DRunModeEntry *e) {
+  if (e == NULL) {
+    return;
+  }
   g_free(e->root);
   g_free(e->path);
   g_free(e->app_id);
@@ -1202,7 +1377,7 @@ static ModeMode drun_mode_result(Mode *sw, int mretv, char **input,
       retv = mode_completer_result(rmpd->completer, mretv, input, selected_line,
                                    &path);
       if (retv == MODE_EXIT) {
-        exec_cmd_entry(&(rmpd->entry_list[rmpd->selected_line]), path);
+        exec_cmd_entry(rmpd, &(rmpd->entry_list[rmpd->selected_line]), path);
       }
       g_free(path);
     }
@@ -1212,7 +1387,7 @@ static ModeMode drun_mode_result(Mode *sw, int mretv, char **input,
     switch (rmpd->entry_list[selected_line].type) {
     case DRUN_DESKTOP_ENTRY_TYPE_SERVICE:
     case DRUN_DESKTOP_ENTRY_TYPE_APPLICATION:
-      exec_cmd_entry(&(rmpd->entry_list[selected_line]), NULL);
+      exec_cmd_entry(rmpd, &(rmpd->entry_list[selected_line]), NULL);
       break;
     case DRUN_DESKTOP_ENTRY_TYPE_LINK:
       launch_link_entry(&(rmpd->entry_list[selected_line]));

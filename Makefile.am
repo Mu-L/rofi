@@ -172,22 +172,61 @@ rofi_LDADD=\
 	$(LIBS)
 
 ##
-# Manpage
+# Manpages
 ##
+
+.PHONY: generate-manpage
+
+if FOUND_PANDOC
+
+generate-manpage: doc/rofi.1\
+	doc/rofi-sensible-terminal.1\
+	doc/rofi-theme-selector.1\
+	doc/rofi-actions.5\
+	doc/rofi-debugging.5\
+	doc/rofi-dmenu.5\
+	doc/rofi-keys.5\
+	doc/rofi-script.5\
+	doc/rofi-theme.5 \
+	doc/rofi-thumbnails.5
+
+doc/rofi.1: doc/rofi.1.markdown
+	pandoc --standalone --to=man --lua-filter=$(top_srcdir)/doc/man_filter.lua -f markdown-tex_math_dollars -o ./$@ ./$<
+doc/rofi-sensible-terminal.1: doc/rofi-sensible-terminal.1.markdown
+	pandoc --standalone --to=man --lua-filter=$(top_srcdir)/doc/man_filter.lua -f markdown-tex_math_dollars -o ./$@ ./$<
+doc/rofi-theme-selector.1: doc/rofi-theme-selector.1.markdown
+	pandoc --standalone --to=man --lua-filter=$(top_srcdir)/doc/man_filter.lua -f markdown-tex_math_dollars -o ./$@ ./$<
+doc/rofi-debugging.5: doc/rofi-debugging.5.markdown
+	pandoc --standalone --to=man --lua-filter=$(top_srcdir)/doc/man_filter.lua -f markdown-tex_math_dollars -o ./$@ ./$<
+doc/rofi-dmenu.5: doc/rofi-dmenu.5.markdown
+	pandoc --standalone --to=man --lua-filter=$(top_srcdir)/doc/man_filter.lua -f markdown-tex_math_dollars -o ./$@ ./$<
+doc/rofi-keys.5: doc/rofi-keys.5.markdown
+	pandoc --standalone --to=man --lua-filter=$(top_srcdir)/doc/man_filter.lua -f markdown-tex_math_dollars -o ./$@ ./$<
+doc/rofi-script.5: doc/rofi-script.5.markdown
+	pandoc --standalone --to=man --lua-filter=$(top_srcdir)/doc/man_filter.lua -f markdown-tex_math_dollars -o ./$@ ./$<
+doc/rofi-theme.5: doc/rofi-theme.5.markdown
+	pandoc --standalone --to=man --lua-filter=$(top_srcdir)/doc/man_filter.lua -f markdown-tex_math_dollars -o ./$@ ./$<
+doc/rofi-thumbnails.5: doc/rofi-thumbnails.5.markdown
+	pandoc --standalone --to=man --lua-filter=$(top_srcdir)/doc/man_filter.lua -f markdown-tex_math_dollars -o ./$@ ./$<
+
+endif
+
 dist_man1_MANS=\
 	doc/rofi.1\
-	doc/rofi-theme-selector.1\
-	doc/rofi-sensible-terminal.1
+	doc/rofi-sensible-terminal.1\
+	doc/rofi-theme-selector.1
 
 dist_man5_MANS=\
-	doc/rofi-theme.5\
 	doc/rofi-debugging.5\
-	doc/rofi-keys.5\
 	doc/rofi-dmenu.5\
-	doc/rofi-script.5
+	doc/rofi-keys.5\
+	doc/rofi-script.5\
+	doc/rofi-theme.5\
+	doc/rofi-thumbnails.5
 
 EXTRA_DIST += \
 	doc/rofi-theme.5.markdown \
+	doc/rofi-thumbnails.5.markdown \
 	doc/rofi-debugging.5.markdown \
 	doc/rofi-script.5.markdown \
 	doc/rofi-keys.5.markdown \
@@ -254,19 +293,7 @@ EXTRA_DIST+=\
 	doc/default_configuration.rasi\
 	doc/default_theme.rasi\
 	Changelog
-##
-# Indent
-##
 
-update-manpage: $(top_srcdir)/doc/rofi-theme-selector.1.markdown $(top_srcdir)/doc/rofi.1.markdown $(top_srcdir)/doc/rofi-theme.5.markdown $(top_srcdir)/doc/rofi-script.5.markdown ${top_srcdir}/doc/rofi-sensible-terminal.1.markdown ${top_srcdir}/doc/rofi-keys.5.markdown ${top_srcdir}/doc/rofi-dmenu.5.markdown $(top_srcdir)/doc/rofi-debugging.5.markdown
-	go-md2man -in $(top_srcdir)/doc/rofi.1.markdown -out $(top_srcdir)/doc/rofi.1
-	go-md2man -in $(top_srcdir)/doc/rofi-theme-selector.1.markdown -out $(top_srcdir)/doc/rofi-theme-selector.1
-	go-md2man -in $(top_srcdir)/doc/rofi-theme.5.markdown -out $(top_srcdir)/doc/rofi-theme.5
-	go-md2man -in $(top_srcdir)/doc/rofi-debugging.5.markdown -out $(top_srcdir)/doc/rofi-debugging.5
-	go-md2man -in $(top_srcdir)/doc/rofi-keys.5.markdown -out $(top_srcdir)/doc/rofi-keys.5
-	go-md2man -in $(top_srcdir)/doc/rofi-script.5.markdown -out $(top_srcdir)/doc/rofi-script.5
-	go-md2man -in $(top_srcdir)/doc/rofi-dmenu.5.markdown -out $(top_srcdir)/doc/rofi-dmenu.5
-	go-md2man -in $(top_srcdir)/doc/rofi-sensible-terminal.1.markdown -out $(top_srcdir)/doc/rofi-sensible-terminal.1
 
 ##
 # Rofi test program
@@ -647,6 +674,7 @@ desktop_DATA=\
 	data/rofi-theme-selector.desktop
 
 EXTRA_DIST += \
+	doc/man_filter.lua \
 	doc/meson.build \
 	subprojects/libgwater/mpd/meson.build \
 	subprojects/libgwater/nl/meson.build \
@@ -656,6 +684,8 @@ EXTRA_DIST += \
 	subprojects/libgwater/wayland-server/meson.build \
 	subprojects/libgwater/meson.build \
 	subprojects/libgwater/win/meson.build \
+	subprojects/libnkutils/bindings/meson.build \
+	subprojects/libnkutils/core/meson.build \
 	subprojects/libnkutils/meson.build \
 	subprojects/libnkutils/meson_options.txt \
 	subprojects/libgwater/wayland/libgwater-wayland.h \
@@ -669,6 +699,7 @@ EXTRA_DIST += \
 	subprojects/libgwater/alsa-mixer/libgwater-alsa-mixer.h \
 	subprojects/libgwater/alsa-mixer/libgwater-alsa-mixer.c \
 	data/rofi.png\
+	meson-dist-script \
 	meson_options.txt \
 	meson.build
 

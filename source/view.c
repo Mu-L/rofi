@@ -29,7 +29,6 @@
 #define G_LOG_DOMAIN "View"
 
 #include "config.h"
-#include <errno.h>
 #include <locale.h>
 #include <signal.h>
 #include <stdint.h>
@@ -64,7 +63,6 @@
 #include "mode.h"
 #include "modes/modes.h"
 #include "xcb-internal.h"
-#include "xrmoptions.h"
 
 #include "view-internal.h"
 #include "view.h"
@@ -145,6 +143,8 @@ struct {
   gboolean delayed_mode;
   /** timeout handling */
   guint user_timeout;
+  /** timeout overlay */
+  guint overlay_timeout;
   /** debug counter for redraws */
   unsigned long long count;
   /** redraw idle time. */
@@ -174,6 +174,7 @@ struct {
                 .max_refilter_time = 0.0,
                 .delayed_mode = FALSE,
                 .user_timeout = 0,
+                .overlay_timeout = 0,
                 .count = 0L,
                 .repaint_source = 0,
                 .fullscreen = FALSE,
@@ -190,8 +191,8 @@ void rofi_view_get_current_monitor(int *width, int *height) {
     *height = CacheState.mon.h;
   }
 }
-static char *get_matching_state(void) {
-  if (config.case_sensitive) {
+static char *get_matching_state(RofiViewState *state) {
+  if (state->case_sensitive) {
     if (config.sort) {
       return "±";
     }
@@ -214,16 +215,28 @@ static int lev_sort(const void *p1, const void *p2, void *arg) {
   return distances[*a] - distances[*b];
 }
 
+static void screenshot_taken_user_callback(const char *path) {
+  if (config.on_screenshot_taken == NULL)
+    return;
+
+  char **args = NULL;
+  int argv = 0;
+  helper_parse_setup(config.on_screenshot_taken, &args, &argv, "{path}", path,
+                     (char *)0);
+  if (args != NULL)
+    helper_execute(NULL, args, "", config.on_screenshot_taken, NULL);
+}
+
 /**
  * Stores a screenshot of Rofi at that point in time.
  */
 void rofi_capture_screenshot(void) {
-  const char *outp = g_getenv("ROFI_PNG_OUTPUT");
-  if (CacheState.edit_surf == NULL) {
-    // Nothing to store.
-    g_warning("There is no rofi surface to store");
+  RofiViewState *state = current_active_menu;
+  if (state == NULL || state->main_window == NULL) {
+    g_warning("Nothing to screenshot.");
     return;
   }
+  const char *outp = g_getenv("ROFI_PNG_OUTPUT");
   const char *xdg_pict_dir = g_get_user_special_dir(G_USER_DIRECTORY_PICTURES);
   if (outp == NULL && xdg_pict_dir == NULL) {
     g_warning("XDG user picture directory or ROFI_PNG_OUTPUT is not set. "
@@ -254,12 +267,31 @@ void rofi_capture_screenshot(void) {
     fpath = g_strdup(outp);
   }
   fprintf(stderr, color_green "Storing screenshot %s\n" color_reset, fpath);
-  cairo_status_t status =
-      cairo_surface_write_to_png(CacheState.edit_surf, fpath);
+  cairo_surface_t *surf = cairo_image_surface_create(
+      CAIRO_FORMAT_ARGB32, state->width, state->height);
+  cairo_status_t status = cairo_surface_status(surf);
   if (status != CAIRO_STATUS_SUCCESS) {
     g_warning("Failed to produce screenshot '%s', got error: '%s'", fpath,
               cairo_status_to_string(status));
+  } else {
+    cairo_t *draw = cairo_create(surf);
+    status = cairo_status(draw);
+    if (status != CAIRO_STATUS_SUCCESS) {
+      g_warning("Failed to produce screenshot '%s', got error: '%s'", fpath,
+                cairo_status_to_string(status));
+    } else {
+      widget_draw(WIDGET(state->main_window), draw);
+      status = cairo_surface_write_to_png(surf, fpath);
+      if (status != CAIRO_STATUS_SUCCESS) {
+        g_warning("Failed to produce screenshot '%s', got error: '%s'", fpath,
+                  cairo_status_to_string(status));
+      }
+      screenshot_taken_user_callback(fpath);
+    }
+    cairo_destroy(draw);
   }
+  // Cleanup
+  cairo_surface_destroy(surf);
   g_free(fpath);
   g_free(filename);
   g_free(timestmp);
@@ -556,9 +588,9 @@ static void rofi_view_set_user_timeout(G_GNUC_UNUSED gpointer data) {
         CacheState.user_timeout =
             g_timeout_add(delay * 1000, rofi_view_user_timeout, NULL);
       } else {
-        Property *p = rofi_theme_find_property(wid, P_DOUBLE, "delay", TRUE);
-        if (p != NULL && p->type == P_DOUBLE && p->value.f > 0.01) {
-          double delay = p->value.f;
+        Property *prop = rofi_theme_find_property(wid, P_DOUBLE, "delay", TRUE);
+        if (prop != NULL && prop->type == P_DOUBLE && prop->value.f > 0.01) {
+          double delay = prop->value.f;
           CacheState.user_timeout =
               g_timeout_add(delay * 1000, rofi_view_user_timeout, NULL);
         }
@@ -746,12 +778,13 @@ static void filter_elements(thread_state *ts,
         glong slen = g_utf8_strlen(str, -1);
         switch (config.sorting_method_enum) {
         case SORT_FZF:
-          t->state->distance[i] =
-              rofi_scorer_fuzzy_evaluate(t->pattern, t->plen, str, slen);
+          t->state->distance[i] = rofi_scorer_fuzzy_evaluate(
+              t->pattern, t->plen, str, slen, t->state->case_sensitive);
           break;
         case SORT_NORMAL:
         default:
-          t->state->distance[i] = levenshtein(t->pattern, t->plen, str, slen);
+          t->state->distance[i] = levenshtein(t->pattern, t->plen, str, slen,
+                                              t->state->case_sensitive);
           break;
         }
         g_free(str);
@@ -986,10 +1019,6 @@ static void input_history_save(void) {
 }
 
 void __create_window(MenuFlags menu_flags) {
-  // In password mode, disable the entry history.
-  if ((menu_flags & MENU_PASSWORD) == MENU_PASSWORD) {
-    CacheState.entry_history_enable = FALSE;
-  }
   input_history_initialize();
 
   uint32_t selmask = XCB_CW_BACK_PIXMAP | XCB_CW_BORDER_PIXEL |
@@ -1104,7 +1133,26 @@ void __create_window(MenuFlags menu_flags) {
 
   TICK_N("textbox setup");
   // // make it an unmanaged window
-  if (((menu_flags & MENU_NORMAL_WINDOW) == 0)) {
+  if (((menu_flags & MENU_TRANSIENT_WINDOW) != 0)) {
+    xcb_atom_t atoms[] = {xcb->ewmh._NET_WM_STATE_MODAL};
+
+    window_set_atom_prop(box_window, xcb->ewmh._NET_WM_STATE, atoms,
+                         sizeof(atoms) / sizeof(xcb_atom_t));
+    window_set_atom_prop(box_window, xcb->ewmh._NET_WM_WINDOW_TYPE,
+                         &(xcb->ewmh._NET_WM_WINDOW_TYPE_UTILITY), 1);
+    x11_disable_decoration(box_window);
+
+    xcb_window_t active_window;
+    xcb_get_property_cookie_t awc;
+    awc = xcb_ewmh_get_active_window(&xcb->ewmh, xcb->screen_nbr);
+
+    if (xcb_ewmh_get_active_window_reply(&xcb->ewmh, awc, &active_window,
+                                         NULL)) {
+      xcb_change_property(xcb->connection, XCB_PROP_MODE_REPLACE, box_window,
+                          XCB_ATOM_WM_TRANSIENT_FOR, XCB_ATOM_WINDOW, 32, 1,
+                          &active_window);
+    }
+  } else if (((menu_flags & MENU_NORMAL_WINDOW) == 0)) {
     window_set_atom_prop(box_window, xcb->ewmh._NET_WM_STATE,
                          &(xcb->ewmh._NET_WM_STATE_ABOVE), 1);
     uint32_t values[] = {1};
@@ -1254,9 +1302,31 @@ inline static void rofi_view_nav_last(RofiViewState *state) {
   // state->selected = state->filtered_lines - 1;
   listview_set_selected(state->list_view, -1);
 }
+static void selection_changed_user_callback(unsigned int index,
+                                            RofiViewState *state) {
+  if (config.on_selection_changed == NULL)
+    return;
+
+  int fstate = 0;
+  char *text = mode_get_display_value(state->sw, state->line_map[index],
+                                      &fstate, NULL, TRUE);
+  char **args = NULL;
+  int argv = 0;
+  helper_parse_setup(config.on_selection_changed, &args, &argv, "{entry}", text,
+                     (char *)0);
+  if (args != NULL)
+    helper_execute(NULL, args, "", config.on_selection_changed, NULL);
+  g_free(text);
+}
 static void selection_changed_callback(G_GNUC_UNUSED listview *lv,
                                        unsigned int index, void *udata) {
   RofiViewState *state = (RofiViewState *)udata;
+  if (index < state->filtered_lines) {
+    if (state->previous_line != state->line_map[index]) {
+      selection_changed_user_callback(index, state);
+      state->previous_line = state->line_map[index];
+    }
+  }
   if (state->tb_current_entry) {
     if (index < state->filtered_lines) {
       int fstate = 0;
@@ -1264,7 +1334,6 @@ static void selection_changed_callback(G_GNUC_UNUSED listview *lv,
                                           &fstate, NULL, TRUE);
       textbox_text(state->tb_current_entry, text);
       g_free(text);
-
     } else {
       textbox_text(state->tb_current_entry, "");
     }
@@ -1274,9 +1343,9 @@ static void selection_changed_callback(G_GNUC_UNUSED listview *lv,
       int icon_height =
           widget_get_desired_height(WIDGET(state->icon_current_entry),
                                     WIDGET(state->icon_current_entry)->w);
-      cairo_surface_t *icon =
+      cairo_surface_t *surf_icon =
           mode_get_icon(state->sw, state->line_map[index], icon_height);
-      icon_set_surface(state->icon_current_entry, icon);
+      icon_set_surface(state->icon_current_entry, surf_icon);
     } else {
       icon_set_surface(state->icon_current_entry, NULL);
     }
@@ -1294,9 +1363,9 @@ static void update_callback(textbox *t, icon *ico, unsigned int index,
 
     if (ico) {
       int icon_height = widget_get_desired_height(WIDGET(ico), WIDGET(ico)->w);
-      cairo_surface_t *icon =
+      cairo_surface_t *surf_icon =
           mode_get_icon(state->sw, state->line_map[index], icon_height);
-      icon_set_surface(ico, icon);
+      icon_set_surface(ico, surf_icon);
     }
     if (t) {
       // TODO needed for markup.
@@ -1336,6 +1405,10 @@ static void update_callback(textbox *t, icon *ico, unsigned int index,
     // TODO needed for markup.
     textbox_font(t, *type);
   }
+}
+static void page_changed_callback(void) {
+  rofi_view_workers_finalize();
+  rofi_view_workers_initialize();
 }
 
 void rofi_view_update(RofiViewState *state, gboolean qr) {
@@ -1414,7 +1487,12 @@ static gboolean rofi_view_refilter_real(RofiViewState *state) {
     unsigned int j = 0;
     gchar *pattern = mode_preprocess_input(state->sw, state->text->text);
     glong plen = pattern ? g_utf8_strlen(pattern, -1) : 0;
-    state->tokens = helper_tokenize(pattern, config.case_sensitive);
+    state->case_sensitive = parse_case_sensitivity(state->text->text);
+    state->tokens = helper_tokenize(pattern, state->case_sensitive);
+
+    if (config.case_smart && state->case_indicator) {
+      textbox_text(state->case_indicator, get_matching_state(state));
+    }
     /**
      * On long lists it can be beneficial to parallelize.
      * If number of threads is 1, no thread is spawn.
@@ -1444,6 +1522,7 @@ static gboolean rofi_view_refilter_real(RofiViewState *state) {
       states[i].plen = plen;
       states[i].pattern = pattern;
       states[i].st.callback = filter_elements;
+      states[i].st.free = NULL;
       states[i].st.priority = G_PRIORITY_HIGH;
       if (i > 0) {
         g_thread_pool_push(tpool, &states[i], NULL);
@@ -1581,7 +1660,7 @@ void rofi_view_finalize(RofiViewState *state) {
  * This function should be called when the input of the entry is changed.
  * TODO: Evaluate if this needs to be a 'signal' on textbox?
  */
-static void rofi_view_input_changed() {
+static void rofi_view_input_changed(void) {
   rofi_view_take_action("inputchange");
 
   RofiViewState *state = current_active_menu;
@@ -1640,7 +1719,7 @@ static void rofi_view_trigger_global_action(KeyBindingAction action) {
     if (state->case_indicator != NULL) {
       config.sort = !config.sort;
       state->refilter = TRUE;
-      textbox_text(state->case_indicator, get_matching_state());
+      textbox_text(state->case_indicator, get_matching_state(state));
     }
     break;
   case MODE_PREVIOUS:
@@ -1670,7 +1749,7 @@ static void rofi_view_trigger_global_action(KeyBindingAction action) {
       config.case_sensitive = !config.case_sensitive;
       (state->selected_line) = 0;
       state->refilter = TRUE;
-      textbox_text(state->case_indicator, get_matching_state());
+      textbox_text(state->case_indicator, get_matching_state(state));
     }
     break;
   // Special delete entry command.
@@ -1846,7 +1925,6 @@ static void rofi_view_trigger_global_action(KeyBindingAction action) {
       // Nothing entered and nothing selected.
       state->retv = MENU_CUSTOM_INPUT;
     }
-
     state->quit = TRUE;
     break;
   }
@@ -1905,6 +1983,16 @@ static void rofi_view_trigger_global_action(KeyBindingAction action) {
     }
     break;
   }
+  case MATCHER_UP:
+    helper_select_next_matching_mode();
+    rofi_view_refilter(state);
+    rofi_view_set_overlay_timeout(state, helper_get_matching_mode_str());
+    break;
+  case MATCHER_DOWN:
+    helper_select_previous_matching_mode();
+    rofi_view_refilter(state);
+    rofi_view_set_overlay_timeout(state, helper_get_matching_mode_str());
+    break;
   }
 }
 
@@ -2050,8 +2138,41 @@ void rofi_view_handle_mouse_motion(RofiViewState *state, gint x, gint y,
   }
 }
 
+static void rofi_quit_user_callback(RofiViewState *state) {
+  if (state->retv & MENU_OK) {
+    if (config.on_entry_accepted == NULL)
+      return;
+    int fstate = 0;
+    unsigned int selected = listview_get_selected(state->list_view);
+    // TODO: handle custom text
+    if (selected >= state->filtered_lines)
+      return;
+    // Pass selected text to custom command
+    char *text = mode_get_display_value(state->sw, state->line_map[selected],
+                                        &fstate, NULL, TRUE);
+    char **args = NULL;
+    int argv = 0;
+    helper_parse_setup(config.on_entry_accepted, &args, &argv, "{entry}", text,
+                       (char *)0);
+    if (args != NULL)
+      helper_execute(NULL, args, "", config.on_entry_accepted, NULL);
+    g_free(text);
+  } else if (state->retv & MENU_CANCEL) {
+    if (config.on_menu_canceled == NULL)
+      return;
+    helper_execute_command(NULL, config.on_menu_canceled, FALSE, NULL);
+  } else if (state->retv & MENU_NEXT || state->retv & MENU_PREVIOUS ||
+             state->retv & MENU_QUICK_SWITCH || state->retv & MENU_COMPLETE) {
+    if (config.on_mode_changed == NULL)
+      return;
+    // TODO: pass mode name to custom command
+    helper_execute_command(NULL, config.on_mode_changed, FALSE, NULL);
+  }
+}
 void rofi_view_maybe_update(RofiViewState *state) {
   if (rofi_view_get_completed(state)) {
+    // Exec custom user commands
+    rofi_quit_user_callback(state);
     // This menu is done.
     rofi_view_finalize(state);
     // If there a state. (for example error) reload it.
@@ -2294,7 +2415,7 @@ static void rofi_view_add_widget(RofiViewState *state, widget *parent_widget,
                        TB_AUTOWIDTH | TB_AUTOHEIGHT, NORMAL, "*", 0, 0);
     // Add small separator between case indicator and text box.
     box_add((box *)parent_widget, WIDGET(state->case_indicator), FALSE);
-    textbox_text(state->case_indicator, get_matching_state());
+    textbox_text(state->case_indicator, get_matching_state(state));
   }
   /**
    * ENTRY BOX
@@ -2336,8 +2457,9 @@ static void rofi_view_add_widget(RofiViewState *state, widget *parent_widget,
       g_error("Listview widget can only be added once to the layout.");
       return;
     }
-    state->list_view = listview_create(parent_widget, name, update_callback,
-                                       state, config.element_height, 0);
+    state->list_view =
+        listview_create(parent_widget, name, update_callback,
+                        page_changed_callback, state, config.element_height, 0);
     listview_set_selection_changed_callback(
         state->list_view, selection_changed_callback, (void *)state);
     box_add((box *)parent_widget, WIDGET(state->list_view), TRUE);
@@ -2445,6 +2567,7 @@ RofiViewState *rofi_view_create(Mode *sw, const char *input,
   state->menu_flags = menu_flags;
   state->sw = sw;
   state->selected_line = UINT32_MAX;
+  state->previous_line = UINT32_MAX;
   state->retv = MENU_CANCEL;
   state->distance = NULL;
   state->quit = FALSE;
@@ -2454,6 +2577,15 @@ RofiViewState *rofi_view_create(Mode *sw, const char *input,
   state->finalize = finalize;
   state->mouse_seen = FALSE;
 
+  // In password mode, disable the entry history.
+  if ((menu_flags & MENU_PASSWORD) == MENU_PASSWORD) {
+    CacheState.entry_history_enable = FALSE;
+    g_debug("Disable entry history, because password setup.");
+  }
+  if (config.disable_history) {
+    CacheState.entry_history_enable = FALSE;
+    g_debug("Disable entry history, because history disable flag.");
+  }
   // Request the lines to show.
   state->num_lines = mode_get_num_entries(sw);
 
@@ -2525,6 +2657,18 @@ RofiViewState *rofi_view_create(Mode *sw, const char *input,
   return state;
 }
 
+static void rofi_error_user_callback(const char *msg) {
+  if (config.on_menu_error == NULL)
+    return;
+
+  char **args = NULL;
+  int argv = 0;
+  helper_parse_setup(config.on_menu_error, &args, &argv, "{error}", msg,
+                     (char *)0);
+  if (args != NULL)
+    helper_execute(NULL, args, "", config.on_menu_error, NULL);
+}
+
 int rofi_view_error_dialog(const char *msg, int markup) {
   RofiViewState *state = __rofi_view_state_create();
   state->retv = MENU_CANCEL;
@@ -2532,14 +2676,14 @@ int rofi_view_error_dialog(const char *msg, int markup) {
   state->finalize = process_result;
 
   state->main_window = box_create(NULL, "window", ROFI_ORIENTATION_VERTICAL);
-  box *box = box_create(WIDGET(state->main_window), "error-message",
-                        ROFI_ORIENTATION_VERTICAL);
-  box_add(state->main_window, WIDGET(box), TRUE);
+  box *new_box = box_create(WIDGET(state->main_window), "error-message",
+                            ROFI_ORIENTATION_VERTICAL);
+  box_add(state->main_window, WIDGET(new_box), TRUE);
   state->text =
-      textbox_create(WIDGET(box), WIDGET_TYPE_TEXTBOX_TEXT, "textbox",
+      textbox_create(WIDGET(new_box), WIDGET_TYPE_TEXTBOX_TEXT, "textbox",
                      (TB_AUTOHEIGHT | TB_WRAP) + ((markup) ? TB_MARKUP : 0),
                      NORMAL, (msg != NULL) ? msg : "", 0, 0);
-  box_add(box, WIDGET(state->text), TRUE);
+  box_add(new_box, WIDGET(state->text), TRUE);
 
   // Make sure we enable fixed num lines when in normal window mode.
   if ((CacheState.flags & MENU_NORMAL_WINDOW) == MENU_NORMAL_WINDOW) {
@@ -2562,6 +2706,9 @@ int rofi_view_error_dialog(const char *msg, int markup) {
     sn_launchee_context_complete(xcb->sncontext);
   }
 
+  // Exec custom command
+  rofi_error_user_callback(msg);
+
   // Set it as current window.
   rofi_view_set_active(state);
   return TRUE;
@@ -2575,7 +2722,7 @@ void rofi_view_hide(void) {
   }
 }
 
-void rofi_view_cleanup() {
+void rofi_view_cleanup(void) {
   // Clear clipboard data.
   xcb_stuff_set_clipboard(NULL);
   g_debug("Cleanup.");
@@ -2586,6 +2733,10 @@ void rofi_view_cleanup() {
   if (CacheState.refilter_timeout > 0) {
     g_source_remove(CacheState.refilter_timeout);
     CacheState.refilter_timeout = 0;
+  }
+  if (CacheState.overlay_timeout) {
+    g_source_remove(CacheState.overlay_timeout);
+    CacheState.overlay_timeout = 0;
   }
   if (CacheState.user_timeout > 0) {
     g_source_remove(CacheState.user_timeout);
@@ -2626,12 +2777,30 @@ void rofi_view_cleanup() {
   input_history_save();
 }
 
-static int rofi_thread_workers_sort(gconstpointer a,gconstpointer b, gpointer data G_GNUC_UNUSED)
-{
+static int rofi_thread_workers_sort(gconstpointer a, gconstpointer b,
+                                    gpointer data G_GNUC_UNUSED) {
   thread_state *tsa = (thread_state *)a;
   thread_state *tsb = (thread_state *)b;
-  // lower number is lower priority..  a is sorted above is a > b. 
-  return tsa->priority-tsb->priority;
+  // lower number is lower priority..  a is sorted above is a > b.
+  return tsa->priority - tsb->priority;
+}
+
+static void rofi_thread_pool_state_free(gpointer data) {
+  if (data) {
+    // This is a weirdness from glib that should not happen.
+    // It pushes in a 1 to msg sleeping threads to wake up.
+    // This should be removed from queue to avoid hitting this method.
+    // In practice, we still hit it (and crash)
+    if (GPOINTER_TO_UINT(data) == 1) {
+      // Ignore this entry.
+      g_debug("Glib thread-pool bug, received pointer with value 1.");
+      return;
+    }
+    thread_state *ts = (thread_state *)data;
+    if (ts->free) {
+      ts->free(data);
+    }
+  }
 }
 
 void rofi_view_workers_initialize(void) {
@@ -2645,8 +2814,9 @@ void rofi_view_workers_initialize(void) {
   }
   // Create thread pool
   GError *error = NULL;
-  tpool = g_thread_pool_new(rofi_view_call_thread, NULL, config.threads, FALSE,
-                            &error);
+  tpool = g_thread_pool_new_full(rofi_view_call_thread, NULL,
+                                 rofi_thread_pool_state_free, config.threads,
+                                 FALSE, &error);
   if (error == NULL) {
     // Idle threads should stick around for a max of 60 seconds.
     g_thread_pool_set_max_idle_time(60000);
@@ -2664,15 +2834,44 @@ void rofi_view_workers_initialize(void) {
 }
 void rofi_view_workers_finalize(void) {
   if (tpool) {
-    g_thread_pool_free(tpool, TRUE, TRUE);
+    // Discard all unprocessed jobs and don't wait for current jobs in execution
+    g_thread_pool_free(tpool, TRUE, FALSE);
     tpool = NULL;
   }
 }
 Mode *rofi_view_get_mode(RofiViewState *state) { return state->sw; }
 
+static gboolean rofi_view_overlay_timeout(G_GNUC_UNUSED gpointer user_data) {
+  RofiViewState *state = rofi_view_get_active();
+  if (state) {
+    widget_disable(WIDGET(state->overlay));
+  }
+  CacheState.overlay_timeout = 0;
+  rofi_view_queue_redraw();
+  return G_SOURCE_REMOVE;
+}
+
+void rofi_view_set_overlay_timeout(RofiViewState *state, const char *text) {
+  if (state->overlay == NULL || state->list_view == NULL) {
+    return;
+  }
+  if (text == NULL) {
+    widget_disable(WIDGET(state->overlay));
+    return;
+  }
+  rofi_view_set_overlay(state, text);
+  int timeout = rofi_theme_get_integer(WIDGET(state->overlay), "timeout", 3);
+  CacheState.overlay_timeout =
+      g_timeout_add_seconds(timeout, rofi_view_overlay_timeout, state);
+}
+
 void rofi_view_set_overlay(RofiViewState *state, const char *text) {
   if (state->overlay == NULL || state->list_view == NULL) {
     return;
+  }
+  if (CacheState.overlay_timeout > 0) {
+    g_source_remove(CacheState.overlay_timeout);
+    CacheState.overlay_timeout = 0;
   }
   if (text == NULL) {
     widget_disable(WIDGET(state->overlay));

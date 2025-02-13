@@ -1,4 +1,4 @@
-# ROFI 1 rofi
+# rofi(1)
 
 ## NAME
 
@@ -66,15 +66,15 @@ Markup support can be enabled, see CONFIGURATION options.
 There are currently three methods of setting configuration options (evaluated
 in order below):
 
--   System configuration file  (for example `/etc/rofi.rasi`). It first checks
+- System configuration file  (for example `/etc/rofi.rasi`). It first checks
     `XDG_CONFIG_DIRS`, and then `SYSCONFDIR` (that is passed at compile time).
     It loads the first config file it finds, it does not merge multiple system
     configuration files.
 
--   Rasi theme file: The new *theme* format can be used to set configuration
+- Rasi theme file: The new *theme* format can be used to set configuration
     values.
 
--   Command-line options: Arguments passed to **rofi**.
+- Command-line options: Arguments passed to **rofi**.
 
 To get a template config file, run: `rofi -dump-config > config.rasi`
 
@@ -102,7 +102,7 @@ For example to set the dpi value to 72:
 
 ```css
 configuration {
-	dpi: 72;
+ dpi: 72;
 }
 ```
 
@@ -246,6 +246,12 @@ exec command. For that case, `#` can be used as a separator.
 Start in case-sensitive mode. This option can be changed at run-time using the
 `-kb-toggle-case-sensitivity` key binding.
 
+`-case-smart`
+
+Start in case-smart mode behave like vim's `smartcase`, which determines
+case-sensitivity by input.  When enabled, this will suppress `-case-sensitive`
+config.
+
 `-cycle`
 
 Cycle through the result list. Default is 'true'.
@@ -302,6 +308,12 @@ Use Pango markup to format output wherever possible.
 Make **rofi** react like a normal application window. Useful for scripts like
 Clerk that are basically an application.
 
+`-transient-window`
+
+Make **rofi** react like a modal dialog that is transient to the currently
+focused window. Useful when you use a keyboard shortcut to run and show
+on the window you are working with.
+
 `-[no-]steal-focus`
 
 Make rofi steal focus on launch and restore close to window that held it when
@@ -312,7 +324,7 @@ launched.
 The time (in ms) boundary filter may take before switch from instant to delayed
 filter mode.
 
-  Default: 300
+Default: 300
 
 A fallback icon can be specified for each mode:
 
@@ -323,6 +335,7 @@ configuration {
     }
 }
 ```
+
 Example
 
 ```css
@@ -347,6 +360,9 @@ Currently, the following methods are supported:
 - **prefix**: match prefix
 
 Default: *normal*
+
+Multiple matching methods can be specified in a comma separated list.
+The matching up/down keybinding allows cycling through at runtime.
 
 Note: glob matching might be slow for larger lists
 
@@ -385,7 +401,7 @@ The format string for the `drun` dialog:
 
 Pango markup can be used to formatting the output.
 
-Default: {name} [<span weight='light' size='small'><i>({generic})</i></span>]
+Default: `{name} [<span weight='light' size='small'><i>({generic})</i></span>]`
 
 Note: Only fields enabled in `-drun-match-fields` can be used in the format
 string.
@@ -410,17 +426,16 @@ The different fields are:
 
 Default: *all*
 
-`-matching-negate-char` *char*
+`-matching-negate-char` *string*
 
 Set the character used to negate the query (i.e. if it does **not** match the
-next keyword). Set to '\x0' to disable.
+next keyword). Set to '\x0' to disable. It takes the first ASCII character from the string.
 
 Default: '-'
 
 ### Filtered menu sort
 
-`-sort` to enable  
-`-no-sort` to disable
+`-[no]-sort`
 
 Enable, disable sort for filtered menu.
 This setting can be changed at runtime (see `-kb-toggle-sort`).
@@ -461,7 +476,7 @@ Default: *0*
 
 `-fixed-num-lines`
 
-Keep a fixed number of visible lines. 
+Keep a fixed number of visible lines.
 
 `-sidebar-mode`
 
@@ -491,26 +506,23 @@ Default: *1*
 
 When one entry is left, automatically select it.
 
-`-m` *num*  
-`-m` *name*  
-`-monitor` *num*  
-`-monitor` *name*  
+`-m` *num*,  `-m` *name*, `-monitor` *num*, `-monitor` *name*
 
 Select monitor to display **rofi** on. It accepts as input: *primary* (if
 primary output is set), the *xrandr* output name, or integer number (in order
 of detection). Negative numbers are handled differently:
 
--   **-1**: the currently focused monitor.
+- **-1**: the currently focused monitor.
 
--   **-2**: the currently focused window (that is, **rofi** will be displayed
+- **-2**: the currently focused window (that is, **rofi** will be displayed
     on top of the focused window).
 
--   **-3**: Position of mouse (overrides the location setting to get normal
+- **-3**: Position of mouse (overrides the location setting to get normal
     context menu behavior.)
 
--   **-4**: the monitor with the focused window.
+- **-4**: the monitor with the focused window.
 
--   **-5**: the monitor that shows the mouse pointer.
+- **-5**: the monitor that shows the mouse pointer.
 
 Default: *-5*
 
@@ -537,10 +549,10 @@ This is now the method to tweak the theme via the command line.
 
 Override the default DPI setting.
 
--   If set to `0`, it tries to auto-detect based on X11 screen size (similar to
+- If set to `0`, it tries to auto-detect based on X11 screen size (similar to
     i3 and GTK).
 
--   If set to `1`, it tries to auto-detect based on the size of the monitor
+- If set to `1`, it tries to auto-detect based on the size of the monitor
     that **rofi** is displayed on (similar to latest Qt 5).
 
 `-selected-row` *selected row*
@@ -588,8 +600,7 @@ Parse the `/etc/hosts` file for entries.
 
 Default: *disabled*
 
-`-parse-known-hosts`  
-`-no-parse-known-hosts`
+`-[no-]parse-known-hosts`
 
 Parse the `~/.ssh/known_hosts` file for entries.
 
@@ -668,6 +679,7 @@ configuration {
   }
 }
 ```
+
 You can hide the currently active window with the 'hide-active-window' setting:
 
 ```css
@@ -695,7 +707,7 @@ or pass `-window-prefer-icon-theme true` on command line.
 
 ### Combi settings
 
-`-combi-modes ` *mode1*,*mode2*
+`-combi-modes` *mode1*,*mode2*
 
 The modes to combine in combi mode.
 For syntax to `-combi-modes`, see `-modes`.
@@ -723,10 +735,9 @@ Note: This setting is ignored if `combi-hide-mode-prefix` is enabled.
 
 ### History
 
-`-disable-history`  
-`-no-disable-history` (re-enable history)
+`-[no-]disable-history`
 
-Disable history
+Disable or re-enable history
 
 `-max-history-size` *number*
 
@@ -854,8 +865,7 @@ configuration {
 }
 ```
 
-`-click-to-exit`
-`-no-click-to-exit`
+`-[no-]click-to-exit`
 
 Click the mouse outside the **rofi** window to exit.
 
@@ -951,13 +961,13 @@ If there is no match, it will try to launch the input.
 Shows a list of executables in `$PATH` and can launch them (optional in a
 terminal).
 
--   Pressing the `delete-entry` binding (`shift-delete`) will remove this entry
+- Pressing the `delete-entry` binding (`shift-delete`) will remove this entry
     from the run history.
 
--   Pressing the `accept-custom` binding (`control-enter`) will run the command
+- Pressing the `accept-custom` binding (`control-enter`) will run the command
     as entered in the entry box.
 
--   Pressing the `accept-alt` binding (`shift-enter`) will run the command in a
+- Pressing the `accept-alt` binding (`shift-enter`) will run the command in a
     terminal.
 
 When pressing the `mode-complete` binding (`Control-l`), you can use the File
@@ -969,13 +979,13 @@ Same as the **run** launches, but the list is created from the installed
 desktop files. It automatically launches them in a terminal if specified in the
 Desktop File.
 
--   Pressing the `delete-entry` binding (`shift-delete`) will remove this entry
+- Pressing the `delete-entry` binding (`shift-delete`) will remove this entry
     from the run history.
 
--   Pressing the `accept-custom` binding (`control-enter`) will run the command
+- Pressing the `accept-custom` binding (`control-enter`) will run the command
     as entered in the entry box.
 
--   Pressing the `accept-alt` binding (`shift-enter`) will run the command in a
+- Pressing the `accept-alt` binding (`shift-enter`) will run the command in a
     terminal.
 
 When pressing the `mode-complete` binding (`Control-l`), you can use the File
@@ -1000,9 +1010,12 @@ configuration {
       parse-user:   true;
       /** Parse system desktop files. */
       parse-system: false;
+      /** Disable DBusActivatable */
+      DBusActivatable: false;
    }
 }
 ```
+
 ### ssh
 
 Shows a list of SSH targets based on your `ssh` config file, and allows to
@@ -1045,7 +1058,7 @@ instead of `"` ("machine quotes").
 
 The indicator shows:
 
-- ` ` Case insensitive and no sorting.
+- `` Case insensitive and no sorting.
 - `-` Case sensitivity enabled, no sorting.
 - `+` Case insensitive and Sorting enabled
 - `±` Sorting and Case sensitivity enabled"
@@ -1054,13 +1067,13 @@ The indicator shows:
 
 Each of these modes uses different methods of resolving the icon:
 
--   Window: It first uses the icon that the application exposes via the X11
+- Window: It first uses the icon that the application exposes via the X11
     Server, if none is set it does a lookup of the window Class name in the icon
     theme.
 
--   drun: It uses the icon set in the desktop file.
+- drun: It uses the icon set in the desktop file.
 
--   run: It does a lookup using the executable name.
+- run: It does a lookup using the executable name.
 
 ## EXAMPLES
 
@@ -1158,7 +1171,7 @@ after the keys have been released.
 
 ## DEBUGGING
 
-For more information see **rofi-debugging(5)** manpage. 
+For more information see **rofi-debugging(5)** manpage.
 
 ## ISSUE TRACKER
 

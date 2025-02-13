@@ -1,73 +1,50 @@
-.nh
-.TH ROFI DEBUGGING 5 rofi debugging
-.SH NAME
-.PP
+# rofi-debugging(5)
+
+## NAME
+
 Debugging rofi.
 
-.PP
 When reporting an issue with rofi crashing, or misbehaving. It helps to do some
 small test to help pin-point the problem.
 
-.PP
-First try disabling your custom configuration: \fB\fC-no-config\fR
+First try disabling your custom configuration: `-no-config`
 
-.PP
-This disables the parsing of the configuration files. This runs rofi in \fIstock\fP
+This disables the parsing of the configuration files. This runs rofi in *stock*
 mode.
 
-.PP
-If you run custom C plugins, you can disable the plugins using: \fB\fC-no-plugins\fR
+If you run custom C plugins, you can disable the plugins using: `-no-plugins`
 
-.SH Get the relevant information for an issue
-.PP
+## Get the relevant information for an issue
+
 Please pastebin the output of the following commands:
 
-.PP
-.RS
-
-.nf
+```bash
 rofi -help
 rofi -dump-config
 rofi -dump-theme
+```
 
-.fi
-.RE
-
-.PP
-\fB\fCrofi -help\fR  provides us with the configuration files parsed, the exact
+`rofi -help`  provides us with the configuration files parsed, the exact
 version, monitor layout and more useful information.
 
-.PP
-The \fB\fCrofi -dump-config\fR and \fB\fCrofi -dump-theme\fR output gives us \fB\fCrofi\fR
+The `rofi -dump-config` and `rofi -dump-theme` output gives us `rofi`
 interpretation of your configuration and theme.
 
-.PP
 Please check the output for identifiable information and remove this.
 
-.SH Timing traces
-.PP
-To get a timing trace, enable the \fBTimings\fP debug domain.
+## Timing traces
 
-.PP
-.RS
+To get a timing trace, enable the **Timings** debug domain.
 
-.nf
+```bash
 G_MESSAGES_DEBUG=Timings rofi -show drun
-
-.fi
-.RE
-
-.PP
+```
 It will show a trace with (useful) timing information at relevant points during
 the execution. This will help debugging when rofi is slow to start.
 
-.PP
 Example trace:
 
-.PP
-.RS
-
-.nf
+```text
 (process:14942): Timings-DEBUG: 13:47:39.335: 0.000000 (0.000000): Started
 (process:14942): Timings-DEBUG: 13:47:39.335: 0.000126 (0.000126): ../source/rofi.c:main:786 
 (process:14942): Timings-DEBUG: 13:47:39.335: 0.000163 (0.000037): ../source/rofi.c:main:819 
@@ -118,139 +95,83 @@ Example trace:
 (process:14942): Timings-DEBUG: 13:47:39.421: 0.086090 (0.000098): ../source/view.c:rofi_view_update:982 
 (process:14942): Timings-DEBUG: 13:47:39.421: 0.086123 (0.000033): ../source/view.c:rofi_view_update:1002 Background
 (process:14942): Timings-DEBUG: 13:47:39.428: 0.092864 (0.006741): ../source/view.c:rofi_view_update:1008 widgets
+```
 
-.fi
-.RE
+## Debug domains
 
-.SH Debug domains
-.PP
 To further debug the plugin, you can get a trace with (lots of) debug
 information. This debug output can be enabled for multiple parts in rofi using
 the glib debug framework. Debug domains can be enabled by setting the
-G_MESSAGES_DEBUG environment variable. At the time of creation of this page,
+G\_MESSAGES\_DEBUG environment variable. At the time of creation of this page,
 the following debug domains exist:
 
-.RS
-.IP \(bu 2
-all: Show debug information from all domains.
-.IP \(bu 2
-X11Helper: The X11 Helper functions.
-.IP \(bu 2
-View: The main window view functions.
-.IP \(bu 2
-Widgets.Box: The Box widget.
-.IP \(bu 2
-Modes.DMenu: The dmenu mode.
-.IP \(bu 2
-Modes.Run: The run mode.
-.IP \(bu 2
-Modes.DRun: The desktop file run mode.
-.IP \(bu 2
-Modes.Window: The window mode.
-.IP \(bu 2
-Modes.Script: The script mode.
-.IP \(bu 2
-Modes.Combi: The script mode.
-.IP \(bu 2
-Modes.Ssh: The ssh mode.
-.IP \(bu 2
-Rofi: The main application.
-.IP \(bu 2
-Timings: Get timing output.
-.IP \(bu 2
-Theme: Theme engine debug output. (warning lots of output).
-.IP \(bu 2
-Widgets.Icon: The Icon widget.
-.IP \(bu 2
-Widgets.Box: The box widget.
-.IP \(bu 2
-Widgets.Container: The container widget.
-.IP \(bu 2
-Widgets.Window: The window widget.
-.IP \(bu 2
-Helpers.IconFetcher: Information about icon lookup.
+- all: Show debug information from all domains.
+- X11Helper: The X11 Helper functions.
+- View: The main window view functions.
+- Widgets.Box: The Box widget.
+- Modes.DMenu: The dmenu mode.
+- Modes.Run: The run mode.
+- Modes.DRun: The desktop file run mode.
+- Modes.Window: The window mode.
+- Modes.Script: The script mode.
+- Modes.Combi: The script mode.
+- Modes.Ssh: The ssh mode.
+- Rofi: The main application.
+- Timings: Get timing output.
+- Theme: Theme engine debug output. (warning lots of output).
+- Widgets.Icon: The Icon widget.
+- Widgets.Box: The box widget.
+- Widgets.Container: The container widget.
+- Widgets.Window: The window widget.
+- Helpers.IconFetcher: Information about icon lookup.
 
-.RE
+For full list see `man rofi`.
 
-.PP
-For full list see \fB\fCman rofi\fR\&.
-
-.PP
-Example: \fB\fCG_MESSAGES_DEBUG=Dialogs.DRun rofi -show drun\fR To get specific output
+Example: `G_MESSAGES_DEBUG=Dialogs.DRun rofi -show drun` To get specific output
 from the Desktop file run dialog.
 
-.PP
-To redirect the debug output to a file (\fB\fC~/rofi.log\fR) add:
+To redirect the debug output to a file (`~/rofi.log`) add:
 
-.PP
-.RS
-
-.nf
+```bash
 rofi -show drun -log ~/rofi.log
+```
 
-.fi
-.RE
-
-.PP
 Specifying the logfile automatically enabled all log domains.
 This can be useful when rofi is launched from a window manager.
 
-.SH Creating a backtrace
-.PP
-First make sure you compile \fBrofi\fP with debug symbols:
+## Creating a backtrace
 
-.PP
-.RS
+First make sure you compile **rofi** with debug symbols:
 
-.nf
+```bash
 make CFLAGS="-O0 -g3" clean rofi
+```
 
-.fi
-.RE
-
-.PP
 Getting a backtrace using GDB is not very handy. Because if rofi get stuck, it
 grabs keyboard and mouse. So if it crashes in GDB you are stuck. The best way
 to go is to enable core file. (ulimit -c unlimited in bash) then make rofi
 crash. You can then load the core in GDB.
 
-.PP
-.RS
-
-.nf
+```bash
 gdb rofi core
+```
 
-.fi
-.RE
-
-.PP
 Then type inside gdb:
 
-.PP
-.RS
-
-.nf
+```bash
 thread apply all bt
+```
 
-.fi
-.RE
-
-.PP
 The output trace is useful when reporting crashes.
 
-.PP
-Some distribution have \fB\fCsystemd-coredump\fR, this way you can easily get a
-backtrace via \fB\fCcoredumpctl\fR\&.
+Some distribution have `systemd-coredump`, this way you can easily get a
+backtrace via `coredumpctl`.
 
-.SH SEE ALSO
-.PP
-rofi-sensible-terminal(1), dmenu(1), rofi-debugging(5), rofi-theme(5),
+## SEE ALSO
+
+rofi-sensible-terminal(1), dmenu(1), rofi-theme(5),
 rofi-script(5), rofi-keys(5),rofi-theme-selector(1)
 
-.SH AUTHOR
-.RS
-.IP \(bu 2
-Qball Cow qball@blame.services
-\[la]mailto:qball@blame.services\[ra]
+## AUTHOR
 
-.RE
+* Qball Cow <qball@blame.services>

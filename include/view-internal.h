@@ -90,6 +90,8 @@ struct RofiViewState {
   int skip_absorb;
   /** The selected line (in the unfiltered list) */
   unsigned int selected_line;
+  /** The previously selected line (in the unfiltered list) */
+  unsigned int previous_line;
   /** The return state of the view */
   MenuReturn retv;
   /** Monitor #workarea the view is displayed on */
@@ -142,6 +144,8 @@ struct RofiViewState {
 
   /** Regexs used for matching */
   rofi_int_matcher **tokens;
+  /** For case-sensitivity */
+  gboolean case_sensitive;
 };
 /** @} */
 #endif

@@ -139,6 +139,7 @@ static void read_add_block(DmenuModePrivateData *pd, Block **block, char *data,
   (*block)->values[(*block)->length].meta = NULL;
   (*block)->values[(*block)->length].info = NULL;
   (*block)->values[(*block)->length].nonselectable = FALSE;
+  (*block)->values[(*block)->length].permanent = FALSE;
   char *end = data;
   while (end < data + len && *end != '\0') {
     end++;
@@ -285,8 +286,8 @@ static gpointer read_input_thread(gpointer userdata) {
       if (FD_ISSET(fd, &rfds)) {
         ssize_t readbytes = 0;
         if ((nread + 1024) > len) {
-          line = g_realloc(line, (nread + 1024));
-          len = nread + 1024;
+          line = g_realloc(line, (len + 2048));
+          len = len + 2048;
         }
         readbytes = read(fd, &line[nread], 1023);
         if (readbytes > 0) {
@@ -573,14 +574,13 @@ static int dmenu_mode_init(Mode *sw) {
     Property *p = rofi_theme_property_create(P_INTEGER);
     p->name = g_strdup("lines");
     p->value.i = lines;
-    ThemeWidget *widget =
-        rofi_theme_find_or_create_name(rofi_theme, "listview");
+    ThemeWidget *wid = rofi_theme_find_or_create_name(rofi_theme, "listview");
     GHashTable *table =
         g_hash_table_new_full(g_str_hash, g_str_equal, NULL,
                               (GDestroyNotify)rofi_theme_property_free);
 
     g_hash_table_replace(table, p->name, p);
-    rofi_theme_widget_add_properties(widget, table);
+    rofi_theme_widget_add_properties(wid, table);
     g_hash_table_destroy(table);
   }
 
@@ -668,6 +668,11 @@ static int dmenu_token_match(const Mode *sw, rofi_int_matcher **tokens,
 
   /** Strip out the markup when matching. */
   char *esc = NULL;
+  if (rmpd->cmd_list[index].permanent == TRUE) {
+    // Always match
+    return 1;
+  }
+
   if (rmpd->do_markup) {
     pango_parse_markup(rmpd->cmd_list[index].entry, -1, 0, NULL, &esc, NULL,
                        NULL);
@@ -714,9 +719,6 @@ static cairo_surface_t *dmenu_get_icon(const Mode *sw,
   DmenuScriptEntry *dr = &(pd->cmd_list[selected_line]);
   if (dr->icon_name == NULL) {
     return NULL;
-  }
-  if (dr->icon_fetch_uid > 0 && dr->icon_fetch_size == height) {
-    return rofi_icon_fetcher_get(dr->icon_fetch_uid);
   }
   uint32_t uid = dr->icon_fetch_uid =
       rofi_icon_fetcher_query(dr->icon_name, height);
@@ -952,7 +954,8 @@ int dmenu_mode_dialog(void) {
   char *select = NULL;
   find_arg_str("-select", &select);
   if (select != NULL) {
-    rofi_int_matcher **tokens = helper_tokenize(select, config.case_sensitive);
+    rofi_int_matcher **tokens =
+        helper_tokenize(select, parse_case_sensitivity(select));
     unsigned int i = 0;
     for (i = 0; i < cmd_list_length; i++) {
       if (helper_token_match(tokens, cmd_list[i].entry)) {
@@ -963,8 +966,9 @@ int dmenu_mode_dialog(void) {
     helper_tokenize_free(tokens);
   }
   if (find_arg("-dump") >= 0) {
-    rofi_int_matcher **tokens = helper_tokenize(
-        config.filter ? config.filter : "", config.case_sensitive);
+    char *filter = config.filter ? config.filter : "";
+    rofi_int_matcher **tokens =
+        helper_tokenize(filter, parse_case_sensitivity(filter));
     unsigned int i = 0;
     for (i = 0; i < cmd_list_length; i++) {
       if (tokens == NULL || helper_token_match(tokens, cmd_list[i].entry)) {
