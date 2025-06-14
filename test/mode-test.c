@@ -37,13 +37,11 @@
 #include "rofi.h"
 #include "theme.h"
 #include "widgets/textbox.h"
-#include "xcb.h"
 #include <helper.h>
 #include <keyb.h>
 #include <mode-private.h>
 #include <mode.h>
 #include <modes/help-keys.h>
-#include <xkbcommon/xkbcommon.h>
 
 #include "rofi-icon-fetcher.h"
 #include <check.h>

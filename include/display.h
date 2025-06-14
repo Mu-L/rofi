@@ -33,6 +33,48 @@
 #include <glib.h>
 
 /**
+ * Structure describing a workarea/monitor.
+ */
+typedef struct _workarea {
+  /** numeric monitor id. */
+  int monitor_id;
+  /** if monitor is set as primary monitor. */
+  int primary;
+  /** Horizontal location (in pixels) of the monitor. */
+  int x;
+  /** Vertical location  (in pixels) of the monitor. */
+  int y;
+  /** Width of the monitor. */
+  int w;
+  /** Height of the monitor */
+  int h;
+  int mw, mh;
+  /** Output name of the monitor, e.g. eDP1 or VGA-1 */
+  char *name;
+  /** Pointer to next monitor */
+  struct _workarea *next;
+} workarea;
+
+struct _display_proxy;
+
+/* Implementations */
+extern struct _display_proxy *const xcb_proxy;
+#ifdef ENABLE_WAYLAND
+extern struct _display_proxy *const wayland_proxy;
+#endif
+
+void display_init(const struct _display_proxy *disp_in);
+
+/**
+ * @param mon workarea to be filled in.
+ *
+ * Fills in #mon with the information about the monitor rofi should show on.
+ *
+ * @returns TRUE if monitor is found, FALSE if no monitor could be detected.
+ */
+int monitor_active(workarea *mon);
+
+/**
  * @param main_loop The GMainLoop
  * @param bindings The bindings object
  *
@@ -74,5 +116,20 @@ void display_dump_monitor_layout(void);
 void display_startup_notification(RofiHelperExecuteContext *context,
                                   GSpawnChildSetupFunc *child_setup,
                                   gpointer *user_data);
+
+void display_set_input_focus(guint w);
+void display_revert_input_focus(void);
+
+guint display_scale(void);
+
+enum clipboard_type {
+  CLIPBOARD_DEFAULT,
+  CLIPBOARD_PRIMARY,
+};
+
+typedef void (* ClipboardCb)(char *clipboard_data, void *user_data);
+void display_get_clipboard_data(enum clipboard_type, ClipboardCb callback, void* user_data);
+
+void display_set_fullscreen_mode(void);
 
 #endif

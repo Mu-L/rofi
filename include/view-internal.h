@@ -27,16 +27,27 @@
 
 #ifndef ROFI_VIEW_INTERNAL_H
 #define ROFI_VIEW_INTERNAL_H
+#include "display.h"
 #include "keyb.h"
 #include "mode.h"
 #include "theme.h"
+#include "view.h"
 #include "widgets/box.h"
 #include "widgets/container.h"
 #include "widgets/icon.h"
 #include "widgets/listview.h"
 #include "widgets/textbox.h"
 #include "widgets/widget.h"
+
+#ifdef ENABLE_XCB
 #include "xcb.h"
+#else
+#include "xcb-dummy.h"
+#endif
+
+#ifdef ENABLE_WAYLAND
+#include "wayland.h"
+#endif
 
 /**
  * @ingroup ViewHandle
@@ -132,6 +143,12 @@ struct RofiViewState {
   /** Y position of the view */
   int y;
 
+#ifdef ENABLE_WAYLAND
+  /** wayland */
+  display_buffer_pool *pool;
+  gboolean frame_callback;
+#endif
+
   /** Position and target of the mouse. */
   struct {
     /** X position */
@@ -148,4 +165,84 @@ struct RofiViewState {
   gboolean case_sensitive;
 };
 /** @} */
+
+typedef struct _view_proxy {
+  void (*update)(struct RofiViewState *state, gboolean qr);
+  void (*temp_configure_notify)(struct RofiViewState *state,
+                                xcb_configure_notify_event_t *xce);
+  void (*temp_click_to_exit)(struct RofiViewState *state, xcb_window_t target);
+  void (*frame_callback)(void);
+
+  void (*queue_redraw)(void);
+
+  void (*set_window_title)(const char *title);
+  void (*calculate_window_position)(struct RofiViewState *state);
+  void (*calculate_window_width)(struct RofiViewState *state);
+  int (*calculate_window_height)(struct RofiViewState *state);
+  void (*window_update_size)(struct RofiViewState *state);
+  void (*set_cursor)(RofiCursorType type);
+  void (*ping_mouse)(struct RofiViewState *state);
+
+  void (*cleanup)(void);
+  void (*hide)(void);
+  void (*reload)(void);
+  void (*__create_window)(MenuFlags menu_flags);
+  xcb_window_t (*get_window)(void);
+
+  void (*get_current_monitor)(int *width, int *height);
+
+  void (*set_size)(struct RofiViewState *state, gint width, gint height);
+  void (*get_size)(struct RofiViewState *state, gint *width, gint *height);
+
+  void (*pool_refresh)(void);
+} view_proxy;
+
+typedef struct {
+  char *string;
+  int index;
+} EntryHistoryIndex;
+
+/**
+ * Structure holding cached state.
+ */
+struct _rofi_view_cache_state {
+  /** main x11 windows */
+  xcb_window_t main_window;
+  /** Main flags */
+  MenuFlags flags;
+  /** List of stacked views */
+  GQueue views;
+  /** timeout for reloading */
+  guint refilter_timeout;
+  /* amount of time refiltering delay got reset */
+  guint refilter_timeout_count;
+
+  /** if filtering takes longer then this time,
+   * reduce the amount of refilters. */
+  double max_refilter_time;
+  /** enable the reduced refilter mode. */
+  gboolean delayed_mode;
+  /** timeout handling */
+  guint user_timeout;
+  /** timeout overlay */
+  guint overlay_timeout;
+  /** Entry box */
+  gboolean entry_history_enable;
+  /** Array with history entriy input. */
+  EntryHistoryIndex *entry_history;
+  /** Length of the array */
+  gssize entry_history_length;
+  /** The current index being viewed. */
+  gssize entry_history_index;
+};
+extern struct _rofi_view_cache_state CacheState;
+
+void rofi_view_update(struct RofiViewState *state, gboolean qr);
+void rofi_view_calculate_window_position(struct RofiViewState *state);
+void rofi_view_calculate_window_width(struct RofiViewState *state);
+int rofi_view_calculate_window_height(struct RofiViewState *state);
+void rofi_view_window_update_size(struct RofiViewState *state);
+void rofi_view_refilter(struct RofiViewState *state);
+void rofi_view_set_window_title(const char *title);
+
 #endif

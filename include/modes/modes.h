@@ -44,5 +44,6 @@
 #include "modes/run.h"
 #include "modes/script.h"
 #include "modes/ssh.h"
+#include "modes/wayland-window.h"
 #include "modes/window.h"
 #endif // ROFI_MODES_MODES_H

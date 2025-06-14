@@ -54,13 +54,11 @@ When adding comments to an issue make sure:
   if there is an update it will be linked/mentioned in the issue, otherwise
   there is no update.
 
-
 Issue high-jacking, e.g. adding a request/issue to an existing issue, is very
 disruptive.
 Please create a new issue, if it is similar it will be marked duplicate.
 
 # Creating a feature request
-
 
 Before creating a feature request:
 
@@ -70,7 +68,7 @@ Before creating a feature request:
 
 When reporting a feature request include the following information:
 
-* Rofi version. (rofi -v)
+* Rofi version and other information. (rofi -info)
 * A clear description of the feature you want added.
 * A use-case for the feature.
 
@@ -78,7 +76,3 @@ If possible try to explain how you would expect to use feature.
 For example, should it be a configuration option or a hot-key.
 
 Requesting a feature is no guarantee it will be added.
-
-**Please do not submit reports related to wayland, see
-[here](https://github.com/DaveDavenport/rofi/wiki/Wayland) for more
-information.**

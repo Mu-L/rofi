@@ -32,15 +32,12 @@
 #include "settings.h"
 #include "theme.h"
 #include "widgets/textbox.h"
-#include "xcb-internal.h"
-#include "xcb.h"
 #include <assert.h>
 #include <glib.h>
 #include <helper.h>
 #include <locale.h>
 #include <stdio.h>
 #include <string.h>
-#include <xcb/xcb_ewmh.h>
 
 #include <check.h>
 

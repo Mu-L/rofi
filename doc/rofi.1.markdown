@@ -138,6 +138,12 @@ Below is a list of the most important options:
 The help option shows the full list of command-line options and the current set
 values. These include dynamic (run-time generated) options.
 
+`-info`
+
+The info option shows useful information to include when reporting an issue.
+This includes compile time options, detected monitors and more. Please check
+the output for any personal information before posting online.
+
 `-version`
 
 Show the **rofi** version and exit.
@@ -428,6 +434,13 @@ The different fields are:
 - **desktop**: window's current desktop
 - **all**: all the above
 
+For Wayland, the list of accepted fields is different:
+
+- **title**: window's title
+- **app-id**: Wayland Application ID or XWayland window's class
+- **class**: same as app-id
+- **all**: all of the above
+
 Default: *all*
 
 `-matching-negate-char` *string*
@@ -553,11 +566,18 @@ This is now the method to tweak the theme via the command line.
 
 Override the default DPI setting.
 
+On X11:
+
 - If set to `0`, it tries to auto-detect based on X11 screen size (similar to
     i3 and GTK).
 
 - If set to `1`, it tries to auto-detect based on the size of the monitor
     that **rofi** is displayed on (similar to latest Qt 5).
+
+On Wayland:
+
+- If set to `0` or `1`, it tries to auto-detect if there is one monitor, or if
+there is a `-monitor` name specified.
 
 `-selected-row` *selected row*
 
@@ -874,6 +894,13 @@ configuration {
 Click the mouse outside the **rofi** window to exit.
 
 Default: *enabled*
+
+`-global-kb`
+`-no-global-kb`
+
+(wayland) Override the compositor's keybindings, so that **rofi** can re-use them.
+
+Default: *disabled*
 
 `-xserver-i300-workaround`
 

@@ -26,6 +26,7 @@
  */
 
 #include "helper.h"
+#include "display.h"
 #include "rofi-icon-fetcher.h"
 #include "rofi.h"
 #include "xrmoptions.h"

@@ -35,6 +35,9 @@ the foundations, and therefore Sean Pringle deserves most of the credit for
 this tool. **Rofi** (renamed, as it lost the *simple* property) has been
 extended with extra features, like an application launcher and ssh-launcher,
 and can act as a drop-in dmenu replacement, making it a very versatile tool.
+Thanks to the great work of [lbonn](https://github.com/lbonn), who added
+Wayland support in his fork and maintained it for years, **Rofi**
+now officially supports Wayland (since 2025).
 
 **Rofi**, like dmenu, will provide the user with a textual list of options
 where one or more can be selected.
@@ -78,7 +81,7 @@ Its main features are:
 
 - Type to filter
   - Tokenized: type any word in any order to filter
-  - Case insensitive (togglable)
+  - Case insensitive (togglable) or SmartCase
   - Support for fuzzy-, regex-, prefix-, and glob-matching
 
 - UTF-8 enabled
@@ -93,6 +96,7 @@ Its main features are:
   - Window switcher mode
     - EWMH compatible WM
     - Work arounds for i3,bspwm
+    - Wayland based WMs that follow the wlr family
 
   - Application launcher
 
@@ -143,6 +147,50 @@ Below is a list of the different modes:
 
 **Rofi** is known to work on Linux and BSD.
 
+## Wayland support
+
+### Build
+
+Please follow the [build instructions](INSTALL.md) to build rofi.
+
+Wayland support is enabled by default, along with X11/xcb.
+
+rofi can also be built *without* X11/xcb or wayland, but atleast one backend
+should be enabled:
+
+    meson build -Dxcb=disabled
+    meson build -Dwayland=disabled
+
+### Usage
+
+**Rofi** should automatically select the xcb or wayland backend depending on
+the environment it is run on.
+
+To force the use of the xcb backend (if enabled during build), the `-x11`
+option can be used:
+
+    rofi -x11 ...
+
+### Missing features in Wayland mode
+
+Due to the different architecture and available APIs in Wayland mode, some original rofi features are difficult or impossible to replicate
+
+- `-normal-window` flag. Though it is also considered as a toy/deprecated feature in Upstream rofi. Not impossible but would require some work.
+- `-monitor -n` for fine-grained selection of monitor to display rofi on
+- some window locations parameters work partially, `x-offset` and `y-offset` are only working from screen edges
+- fake transparency
+- window mode on KWin which implements different protocols than the wlr family
+
+### Wayland DPI
+
+On wayland, the output is only known after the first surface is shown. This makes sizing
+rofi windows in absolute size (mm) very difficult, a problem unique for rofi,
+as the actual DPI is unknown before hand. This can be worked around by manually
+passing the right DPI via configuration system. If the `dpi` config option is
+set to `0` and only one monitor is connected rofi will use the DPI of the only
+connected monitor or if you have multiple monitors and you specify a monitor
+name, it will use the DPI of that monitor.
+
 ## Manpage
 
 For more up to date information, please see the manpages. The other sections
@@ -164,9 +212,8 @@ new issue.
 
 ## Installation
 
-Please see the [installation
-guide](https://github.com/davatorium/rofi/blob/next/INSTALL.md) for
-instructions on how to install **Rofi**.
+Please see the [installation guide](INSTALL.md) for instructions on how to
+install **Rofi**.
 
 ## Quickstart
 

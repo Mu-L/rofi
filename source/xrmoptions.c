@@ -32,16 +32,12 @@
 #include "rofi-types.h"
 #include "rofi.h"
 #include "settings.h"
-#include "xcb-internal.h"
-#include "xcb.h"
 #include <ctype.h>
 #include <glib.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <xcb/xcb.h>
-#include <xcb/xkb.h>
 
 ThemeWidget *rofi_configuration = NULL;
 
@@ -405,6 +401,12 @@ static XrmOption xrmOptions[] = {
     {xrm_Boolean,
      "click-to-exit",
      {.snum = &config.click_to_exit},
+     NULL,
+     "Click outside the window to exit",
+     CONFIG_DEFAULT},
+    {xrm_Boolean,
+     "global-kb",
+     {.snum = &config.global_kb},
      NULL,
      "Click outside the window to exit",
      CONFIG_DEFAULT},

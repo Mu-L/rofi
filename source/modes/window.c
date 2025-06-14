@@ -49,6 +49,7 @@
 #include "xcb-internal.h"
 #include "xcb.h"
 
+#include "display.h"
 #include "helper.h"
 #include "modes/window.h"
 #include "rofi.h"
@@ -126,6 +127,7 @@ typedef struct {
   gboolean icon_checked;
   uint32_t icon_fetch_uid;
   uint32_t icon_fetch_size;
+  guint icon_fetch_scale;
   gboolean thumbnail_checked;
   gboolean icon_theme_checked;
 } client;
@@ -1072,11 +1074,12 @@ static cairo_surface_t *get_net_wm_icon(xcb_window_t xid,
 static cairo_surface_t *_get_icon(const Mode *sw, unsigned int selected_line,
                                   unsigned int size) {
   WindowModePrivateData *rmpd = mode_get_private_data(sw);
+  const guint scale = display_scale();
   client *c = window_client(rmpd, rmpd->ids->array[selected_line]);
   if (c == NULL) {
     return NULL;
   }
-  if (c->icon_fetch_size != size) {
+  if (c->icon_fetch_size != size || c->icon_fetch_scale != scale) {
     if (c->icon) {
       cairo_surface_destroy(c->icon);
       c->icon = NULL;
@@ -1085,6 +1088,7 @@ static cairo_surface_t *_get_icon(const Mode *sw, unsigned int selected_line,
     c->icon_checked = FALSE;
     c->icon_theme_checked = FALSE;
   }
+  // TODO: apply scaling to the following two routines
   if (config.window_thumbnail && c->thumbnail_checked == FALSE) {
     c->icon = x11_helper_get_screenshot_surface_window(c->window, size);
     c->thumbnail_checked = TRUE;
@@ -1100,6 +1104,7 @@ static cairo_surface_t *_get_icon(const Mode *sw, unsigned int selected_line,
         c->icon_fetch_uid = rofi_icon_fetcher_query(class_lower, size);
         g_free(class_lower);
         c->icon_fetch_size = size;
+        c->icon_fetch_scale = scale;
       }
       c->icon_theme_checked =
           rofi_icon_fetcher_get_ex(c->icon_fetch_uid, &(c->icon));
@@ -1109,11 +1114,13 @@ static cairo_surface_t *_get_icon(const Mode *sw, unsigned int selected_line,
     }
   } else {
     if (c->icon == NULL && c->class && c->icon_theme_checked == FALSE) {
-      if (c->icon_fetch_uid == 0) {
+      if (c->icon_fetch_uid == 0 || c->icon_fetch_size != size ||
+          c->icon_fetch_scale != scale) {
         char *class_lower = g_utf8_strdown(c->class, -1);
         c->icon_fetch_uid = rofi_icon_fetcher_query(class_lower, size);
         g_free(class_lower);
         c->icon_fetch_size = size;
+        c->icon_fetch_scale = scale;
       }
       c->icon_theme_checked =
           rofi_icon_fetcher_get_ex(c->icon_fetch_uid, &(c->icon));
@@ -1128,6 +1135,7 @@ static cairo_surface_t *_get_icon(const Mode *sw, unsigned int selected_line,
     }
   }
   c->icon_fetch_size = size;
+  c->icon_fetch_scale = scale;
   return c->icon;
 }
 

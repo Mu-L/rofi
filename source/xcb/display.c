@@ -29,7 +29,8 @@
 /** Log domain for this module */
 #define G_LOG_DOMAIN "X11Helper"
 
-#include "config.h"
+#include <config.h>
+
 #ifdef XCB_IMDKIT
 #include <xcb-imdkit/encoding.h>
 #include <xcb/xcb_keysyms.h>
@@ -58,6 +59,7 @@
 /** This function is declared as sn_launcher_context_set_application_id but
  * implemented as sn_launcher_set_application_id. Quick Fix. */
 #define sn_launcher_context_set_application_id sn_launcher_set_application_id
+#include "display-internal.h"
 #include "display.h"
 #include "helper.h"
 #include "rofi-types.h"
@@ -691,7 +693,7 @@ static void x11_build_monitor_layout(void) {
   }
 }
 
-void display_dump_monitor_layout(void) {
+static void xcb_display_dump_monitor_layout(void) {
   int is_term = isatty(fileno(stdout));
   printf("Monitor layout:\n");
   for (workarea *iter = xcb->monitors; iter; iter = iter->next) {
@@ -717,9 +719,9 @@ void display_dump_monitor_layout(void) {
   }
 }
 
-void display_startup_notification(RofiHelperExecuteContext *context,
-                                  GSpawnChildSetupFunc *child_setup,
-                                  gpointer *user_data) {
+static void xcb_display_startup_notification(RofiHelperExecuteContext *context,
+                                             GSpawnChildSetupFunc *child_setup,
+                                             gpointer *user_data) {
   if (context == NULL) {
     return;
   }
@@ -816,7 +818,6 @@ static int pointer_get(xcb_window_t root, int *x, int *y) {
 
   return FALSE;
 }
-
 static int monitor_active_from_winid(xcb_drawable_t id, workarea *mon) {
   if (mon == NULL) {
     g_error("%s: mon == NULL", __func__);
@@ -960,10 +961,11 @@ static int monitor_active_from_id(int mon_id, workarea *mon) {
                   mon->h);
           xcb_ewmh_get_desktop_viewport_reply_wipe(&vp);
           return TRUE;
+        } else {
+          g_debug("Viewport does not exist for current desktop: %d, falling "
+                  "back to mouse location (-5)",
+                  current_desktop);
         }
-        g_debug("Viewport does not exist for current desktop: %d, falling "
-                "back to mouse location (-5)",
-                current_desktop);
         xcb_ewmh_get_desktop_viewport_reply_wipe(&vp);
       } else {
         g_debug("Failed to get viewport for current desktop: %d, falling back "
@@ -992,15 +994,13 @@ static int monitor_active_from_id(int mon_id, workarea *mon) {
   return monitor_active_from_id(-5, mon);
 }
 
-// determine which monitor holds the active window, or failing that the mouse
-// pointer
 /** The cached monitor setup (mon_cache) is populated */
 gboolean mon_set = FALSE;
 /** cached monitor cache, to avoid multiple roundtrips to fetch this. */
 workarea mon_cache = {
     0,
 };
-int monitor_active(workarea *mon) {
+static int xcb_display_monitor_active(workarea *mon) {
   if (mon == NULL) {
     g_error("%s: mon == NULL", __func__);
     return FALSE;
@@ -1490,39 +1490,6 @@ static gboolean main_loop_x11_event_handler(xcb_generic_event_t *ev,
   return G_SOURCE_CONTINUE;
 }
 
-void rofi_xcb_set_input_focus(xcb_window_t w) {
-  if (config.steal_focus != TRUE) {
-    xcb->focus_revert = 0;
-    return;
-  }
-  xcb_generic_error_t *error;
-  xcb_get_input_focus_reply_t *freply;
-  xcb_get_input_focus_cookie_t fcookie = xcb_get_input_focus(xcb->connection);
-  freply = xcb_get_input_focus_reply(xcb->connection, fcookie, &error);
-  if (error != NULL) {
-    g_warning("Could not get input focus (error %d), will revert focus to best "
-              "effort",
-              error->error_code);
-    free(error);
-    xcb->focus_revert = 0;
-  } else {
-    xcb->focus_revert = freply->focus;
-  }
-  xcb_set_input_focus(xcb->connection, XCB_INPUT_FOCUS_POINTER_ROOT, w,
-                      XCB_CURRENT_TIME);
-  xcb_flush(xcb->connection);
-}
-
-void rofi_xcb_revert_input_focus(void) {
-  if (xcb->focus_revert == 0) {
-    return;
-  }
-
-  xcb_set_input_focus(xcb->connection, XCB_INPUT_FOCUS_POINTER_ROOT,
-                      xcb->focus_revert, XCB_CURRENT_TIME);
-  xcb_flush(xcb->connection);
-}
-
 static int take_pointer(xcb_window_t w, int iters) {
   int i = 0;
   while (TRUE) {
@@ -1667,7 +1634,7 @@ static void x11_helper_discover_window_manager(void) {
   }
 }
 
-gboolean display_setup(GMainLoop *main_loop, NkBindings *bindings) {
+static gboolean xcb_display_setup(GMainLoop *main_loop, NkBindings *bindings) {
   // Get DISPLAY, first env, then argument.
   // We never modify display_str content.
   char *display_str = (char *)g_getenv("DISPLAY");
@@ -1794,11 +1761,6 @@ gboolean display_setup(GMainLoop *main_loop, NkBindings *bindings) {
     return FALSE;
   }
 
-  uint32_t val[] = {XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY};
-
-  xcb_change_window_attributes(xcb->connection, xcb_stuff_get_root_window(),
-                               XCB_CW_EVENT_MASK, val);
-
   // startup not.
   xcb->sndisplay =
       sn_xcb_display_new(xcb->connection, error_trap_push, error_trap_pop);
@@ -1913,7 +1875,7 @@ static gboolean lazy_grab_keyboard(G_GNUC_UNUSED gpointer data) {
   return G_SOURCE_CONTINUE;
 }
 
-gboolean display_late_setup(void) {
+static gboolean xcb_display_late_setup(void) {
   x11_create_visual_and_colormap();
 
   x11_lookup_cursors();
@@ -1948,13 +1910,13 @@ gboolean display_late_setup(void) {
 
 xcb_window_t xcb_stuff_get_root_window(void) { return xcb->screen->root; }
 
-void display_early_cleanup(void) {
+static void xcb_display_early_cleanup(void) {
   release_keyboard();
   release_pointer();
   xcb_flush(xcb->connection);
 }
 
-void display_cleanup(void) {
+static void xcb_display_cleanup(void) {
   if (xcb->connection == NULL) {
     return;
   }
@@ -2028,3 +1990,59 @@ void xcb_stuff_set_clipboard(char *data) {
   g_free(xcb->clipboard);
   xcb->clipboard = data;
 }
+
+static void xcb_display_set_input_focus(guint w) {
+  if (config.steal_focus != TRUE) {
+    xcb->focus_revert = 0;
+    return;
+  }
+  xcb_generic_error_t *error;
+  xcb_get_input_focus_reply_t *freply;
+  xcb_get_input_focus_cookie_t fcookie = xcb_get_input_focus(xcb->connection);
+  freply = xcb_get_input_focus_reply(xcb->connection, fcookie, &error);
+  if (error != NULL) {
+    g_warning("Could not get input focus (error %d), will revert focus to best "
+              "effort",
+              error->error_code);
+    free(error);
+    xcb->focus_revert = 0;
+  } else {
+    xcb->focus_revert = freply->focus;
+  }
+  xcb_set_input_focus(xcb->connection, XCB_INPUT_FOCUS_POINTER_ROOT, w,
+                      XCB_CURRENT_TIME);
+  xcb_flush(xcb->connection);
+}
+
+static void xcb_display_revert_input_focus(void) {
+  if (xcb->focus_revert == 0) {
+    return;
+  }
+
+  xcb_set_input_focus(xcb->connection, XCB_INPUT_FOCUS_POINTER_ROOT,
+                      xcb->focus_revert, XCB_CURRENT_TIME);
+  xcb_flush(xcb->connection);
+}
+
+static guint xcb_display_scale(void) { return 1; }
+
+static const struct _view_proxy *xcb_display_view_proxy(void) {
+  return xcb_view_proxy;
+}
+
+static display_proxy display_ = {
+    .setup = xcb_display_setup,
+    .late_setup = xcb_display_late_setup,
+    .early_cleanup = xcb_display_early_cleanup,
+    .cleanup = xcb_display_cleanup,
+    .dump_monitor_layout = xcb_display_dump_monitor_layout,
+    .startup_notification = xcb_display_startup_notification,
+    .monitor_active = xcb_display_monitor_active,
+    .set_input_focus = xcb_display_set_input_focus,
+    .revert_input_focus = xcb_display_revert_input_focus,
+    .scale = xcb_display_scale,
+
+    .view = xcb_display_view_proxy,
+};
+
+display_proxy *const xcb_proxy = &display_;

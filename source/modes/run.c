@@ -46,6 +46,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "display.h"
 #include "helper.h"
 #include "history.h"
 #include "modes/filebrowser.h"
@@ -67,6 +68,7 @@ typedef struct {
   char *exec;
   uint32_t icon_fetch_uid;
   uint32_t icon_fetch_size;
+  guint icon_fetch_scale;
   gboolean from_history;
   /* Surface holding the icon. */
   cairo_surface_t *icon;
@@ -572,13 +574,15 @@ static char *run_get_message(const Mode *sw) {
 static cairo_surface_t *_get_icon(const Mode *sw, unsigned int selected_line,
                                   unsigned int height) {
   RunModePrivateData *pd = (RunModePrivateData *)mode_get_private_data(sw);
+  const guint scale = display_scale();
   if (pd->file_complete) {
     return pd->completer->_get_icon(pd->completer, selected_line, height);
   }
   g_return_val_if_fail(pd->cmd_list != NULL, NULL);
   RunEntry *dr = &(pd->cmd_list[selected_line]);
 
-  if (dr->icon_fetch_uid > 0 && dr->icon_fetch_size == height) {
+  if (dr->icon_fetch_uid > 0 && dr->icon_fetch_size == height &&
+      dr->icon_fetch_scale == scale) {
     cairo_surface_t *icon = rofi_icon_fetcher_get(dr->icon_fetch_uid);
     return icon;
   }
@@ -587,6 +591,7 @@ static cairo_surface_t *_get_icon(const Mode *sw, unsigned int selected_line,
   if (str) {
     dr->icon_fetch_uid = rofi_icon_fetcher_query(str[0], height);
     dr->icon_fetch_size = height;
+    dr->icon_fetch_scale = scale;
     g_strfreev(str);
     cairo_surface_t *icon = rofi_icon_fetcher_get(dr->icon_fetch_uid);
     return icon;

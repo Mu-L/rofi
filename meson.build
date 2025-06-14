@@ -66,24 +66,65 @@ deps = [
     dep_lm,
 ]
 
-
 libgwater = subproject('libgwater')
+
+##
+# Check if atleast xcb or wayland is allowed in build configuration.
+# No point in having no backend.
+##
+xcb_opt = get_option('xcb')
+wayland_opt = get_option('wayland')
+assert(xcb_opt.allowed() or wayland_opt.allowed(),
+    'At least one of these options must be allowed: wayland, xcb')
+
 # XCB stuff
-deps += [
-    libgwater.get_variable('libgwater_xcb'),
-    dependency('xcb'),
-    dependency('xcb-aux'),
-    dependency('xcb-xkb'),
-    dependency('xkbcommon-x11'),
-    dependency('xcb-ewmh'),
-    dependency('xcb-icccm'),
-    dependency('xcb-randr'),
-    dependency('xcb-cursor'),
-    dependency('xcb-xinerama'),
-    dependency('xcb-keysyms'),
-    dependency('cairo-xcb'),
-    dependency('libstartup-notification-1.0'),
+xcb = dependency('xcb', required: xcb_opt)
+xcb_deps = [
+    xcb,
+    dependency('xcb-aux', required: xcb_opt),
+    dependency('xcb-xkb', required: xcb_opt),
+    dependency('xkbcommon-x11', required: xcb_opt),
+    dependency('xcb-ewmh', required: xcb_opt),
+    dependency('xcb-icccm', required: xcb_opt),
+    dependency('xcb-randr', required: xcb_opt),
+    dependency('xcb-cursor', required: xcb_opt),
+    dependency('xcb-xinerama', required: xcb_opt),
+    dependency('xcb-keysyms', required: xcb_opt),
+    dependency('cairo-xcb', required: xcb_opt),
+    dependency('libstartup-notification-1.0', required: xcb_opt),
 ]
+
+xcb_enabled = xcb_opt.allowed()
+foreach dep: xcb_deps
+  xcb_enabled = xcb_enabled and dep.found()
+endforeach
+
+if xcb_enabled
+  deps += xcb_deps + [libgwater.get_variable('libgwater_xcb')]
+endif
+
+wayland_protocols = dependency('wayland-protocols', version: '>= 1.17', required: wayland_opt)
+wayland_deps = [
+  dependency('wayland-client', required: wayland_opt),
+  wayland_protocols,
+  dependency('wayland-cursor', required: wayland_opt),
+]
+
+wayland_enabled = wayland_opt.allowed()
+foreach dep: wayland_deps
+  wayland_enabled = wayland_enabled and dep.found()
+endforeach
+
+if wayland_enabled
+  deps += wayland_deps + [libgwater.get_variable('libgwater_wayland')]
+endif
+
+##
+# If both in auto mode, but none found. Check again if atleast one exists.
+##
+
+assert(xcb_enabled or wayland_enabled,
+    'At least one of these options must be found: wayland, xcb')
 
 header_conf = configuration_data()
 if get_option('imdkit')
@@ -124,6 +165,9 @@ header_conf.set('GLIB_VERSION_MAX_ALLOWED', '(G_ENCODE_VERSION(@0@,@1@))'.format
 
 header_conf.set('ENABLE_DRUN', get_option('drun'))
 header_conf.set('WINDOW_MODE', get_option('window'))
+
+header_conf.set('ENABLE_WAYLAND', wayland_enabled)
+header_conf.set('ENABLE_XCB', xcb_enabled)
 
 header_conf.set_quoted('MANPAGE_PATH', join_paths(get_option('prefix'), get_option('mandir')))
 header_conf.set_quoted('SYSCONFDIR', join_paths(get_option('prefix'), get_option('sysconfdir')))
@@ -184,16 +228,17 @@ bison = generator(find_program('bison'),
 
 rofi_sources = files(
         'source/rofi.c',
-        'source/view.c',
         'source/mode.c',
         'source/keyb.c',
         'config/config.c',
+        'source/display.c',
         'source/helper.c',
         'source/timings.c',
         'source/history.c',
         'source/theme.c',
         'source/rofi-icon-fetcher.c',
         'source/css-colors.c',
+        'source/view.c',
         'source/widgets/box.c',
         'source/widgets/icon.c',
         'source/widgets/container.c',
@@ -203,20 +248,17 @@ rofi_sources = files(
         'source/widgets/scrollbar.c',
         'source/xrmoptions.c',
         'source/rofi-types.c',
-        'source/xcb.c',
         'source/modes/run.c',
         'source/modes/ssh.c',
         'source/modes/drun.c',
         'source/modes/dmenu.c',
         'source/modes/combi.c',
-        'source/modes/window.c',
         'source/modes/script.c',
         'source/modes/help-keys.c',
         'source/modes/filebrowser.c',
         'source/modes/recursivebrowser.c',
         'include/display.h',
         'include/xcb.h',
-        'include/xcb-internal.h',
         'include/rofi.h',
         'include/mode.h',
         'include/mode-private.h',
@@ -247,17 +289,75 @@ rofi_sources = files(
         'include/modes/dmenu.h',
         'include/modes/combi.h',
         'include/modes/script.h',
-        'include/modes/window.h',
         'include/modes/modes.h',
         'include/modes/help-keys.h',
         'include/modes/filebrowser.h',
         'include/modes/dmenuscriptshared.h',
 )
+if xcb_enabled
+    rofi_sources += files(
+        'source/modes/window.c',
+        'source/xcb/display.c',
+        'source/xcb/view.c',
+        'include/modes/window.h',
+        'include/xcb-internal.h',
+    )
+endif
+
 theme_lexer_sources = files('lexer/theme-lexer.l')
 theme_parser_sources = files('lexer/theme-parser.y')
 
 theme_lexer = flex.process(theme_lexer_sources)
 theme_parser = bison.process(theme_parser_sources)
+
+if wayland_enabled
+    fs = import('fs')
+    wayland_sys_protocols_dir = wayland_protocols.get_variable(pkgconfig: 'pkgdatadir')
+    wayland_scanner = find_program('wayland-scanner')
+    protocols = files(
+        wayland_sys_protocols_dir + '/stable/xdg-shell/xdg-shell.xml',
+        wayland_sys_protocols_dir + '/unstable/primary-selection/primary-selection-unstable-v1.xml',
+        wayland_sys_protocols_dir + '/unstable/keyboard-shortcuts-inhibit/keyboard-shortcuts-inhibit-unstable-v1.xml',
+        'protocols/wlr-foreign-toplevel-management-unstable-v1.xml',
+        'protocols/wlr-layer-shell-unstable-v1.xml',
+    )
+
+    if wayland_protocols.version().version_compare('>=1.32')
+        add_project_arguments('-DHAVE_WAYLAND_CURSOR_SHAPE', language: 'c')
+        protocols += files(
+            wayland_sys_protocols_dir + '/staging/cursor-shape/cursor-shape-v1.xml',
+            wayland_sys_protocols_dir + '/unstable/tablet/tablet-unstable-v2.xml',
+        )
+    endif
+
+    proto_srcs = []
+    proto_headers = []
+    foreach p : protocols
+        proto_srcs += custom_target(
+            fs.stem(p).underscorify() + '_protocol_c',
+            input: p,
+            output: '@BASENAME@-protocol.c',
+            command: [wayland_scanner, 'public-code', '@INPUT@', '@OUTPUT@'],
+        )
+        proto_headers += custom_target(
+            fs.stem(p).underscorify() + '_protocol_h',
+            input: p,
+            output: '@BASENAME@-protocol.h',
+            command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+        )
+    endforeach
+
+    rofi_sources += proto_srcs
+    rofi_sources += proto_headers
+    rofi_sources += files(
+        'source/modes/wayland-window.c',
+        'source/wayland/view.c',
+        'source/wayland/display.c',
+        'include/modes/wayland-window.h',
+        'include/wayland-internal.h',
+    )
+endif
+
 
 gnome = import('gnome')
 default_theme = gnome.compile_resources('resources', files('resources/resources.xml'))
@@ -316,7 +416,7 @@ pkg = import('pkgconfig')
 pkg.generate(
     filebase: 'rofi',
     name: 'rofi',
-    version: meson.project_version(),
+    version: meson.project_version().split('+')[0],
     description: 'Header files for rofi plugins',
     variables: [
         'pluginsdir=@0@'.format(join_paths('${libdir}', meson.project_name())),

@@ -15,7 +15,7 @@ on:
       - "**.rasi"
 
 jobs:
-  build-meson-gcc:
+  build-gcc:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -25,7 +25,8 @@ jobs:
       - uses: ./.github/actions/meson
         with:
           cc: gcc
-  build-meson-clang:
+      - uses: ./.github/actions/doxycheck
+  build-clang:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -35,39 +36,29 @@ jobs:
       - uses: ./.github/actions/meson
         with:
           cc: clang
-  build-autotools-gcc:
+  build-gcc-wayland-only:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
       - uses: ./.github/actions/setup
-      - uses: ./.github/actions/autotools
+        with:
+          xcb: false
+      - uses: ./.github/actions/meson
         with:
           cc: gcc
-          windowmode: enable
-          do-release: true
-  build-autotools-gcc-no-window:
+          xcb: disabled
+  build-gcc-xcb-only:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
       - uses: ./.github/actions/setup
-      - uses: ./.github/actions/autotools
+        with:
+          wayland: false
+      - uses: ./.github/actions/meson
         with:
           cc: gcc
-          windowmode: disable
-          do-release: false
-  build-autotools-clang:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-      - uses: ./.github/actions/setup
-      - uses: ./.github/actions/autotools
-        with:
-          cc: clang
-          windowmode: enable
-          do-release: false
+          wayland: disabled

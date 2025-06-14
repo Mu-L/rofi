@@ -31,7 +31,11 @@
 #include "mode.h"
 #include "widgets/widget.h"
 #include <pango/pango.h>
+#ifdef ENABLE_XCB
 #include <xcb/xcb.h>
+#else
+#include "xcb-dummy.h"
+#endif
 /**
  * @defgroup View View
  *
@@ -239,6 +243,8 @@ int rofi_view_error_dialog(const char *msg, int markup);
  */
 void rofi_view_queue_redraw(void);
 
+void rofi_view_calculate_window_position(RofiViewState *state);
+
 /**
  * Cleanup internal data of the view.
  */
@@ -348,6 +354,34 @@ void rofi_capture_screenshot(void);
  * Set the window title.
  */
 void rofi_view_set_window_title(const char *title);
+
+void rofi_view_set_size(RofiViewState *state, gint width, gint height);
+
+void rofi_view_get_size(RofiViewState *state, gint *width, gint *height);
+
+void rofi_view_ping_mouse(RofiViewState *state);
+
+void rofi_view_set_window_title(const char *title);
+void rofi_view_pool_refresh(void);
+
+void rofi_view_set_cursor(RofiCursorType type);
+
+/**
+ * Input history
+ */
+
+void input_history_save(void);
+void input_history_initialize(void);
+
+struct _view_proxy;
+
+/* Implementations */
+extern const struct _view_proxy *xcb_view_proxy;
+#ifdef ENABLE_WAYLAND
+extern const struct _view_proxy *wayland_view_proxy;
+#endif
+
+void view_init(const struct _view_proxy *view_in);
 
 /**
   @param state The window state handle

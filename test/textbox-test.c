@@ -31,17 +31,18 @@
 
 #include "display.h"
 #include "settings.h"
-#include "xcb.h"
 #include "xrmoptions.h"
 #include <assert.h>
-#include <cairo-xlib.h>
 #include <glib.h>
 #include <history.h>
 #include <rofi.h>
+#include <cairo.h>
+#include "display.h"
+#include "settings.h"
+#include "xrmoptions.h"
 #include <stdio.h>
 #include <string.h>
 #include <widgets/textbox.h>
-#include <xcb/xcb.h>
 
 #include "rofi-icon-fetcher.h"
 static int test = 0;

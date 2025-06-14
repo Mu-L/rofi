@@ -49,6 +49,11 @@ typedef enum {
  */
 typedef enum { SORT_NORMAL = 0, SORT_FZF = 1 } SortingMethod;
 
+typedef enum {
+  DISPLAY_XCB,
+  DISPLAY_WAYLAND,
+} DisplayBackend;
+
 /**
  * Settings structure holding all (static) configurable options.
  * @ingroup CONFIGURATION
@@ -95,6 +100,9 @@ typedef struct {
   char *window_match_fields;
   /** Theme for icons */
   char *icon_theme;
+
+  /** Backend */
+  DisplayBackend backend;
 
   /** Windows location/gravity */
   WindowLocation location;
@@ -166,6 +174,9 @@ typedef struct {
   char *window_format;
   /** Click outside the window to exit */
   int click_to_exit;
+
+  /** Try to take over compositor's global bindings (on Wayland) */
+  gboolean global_kb;
 
   char *theme;
   /** Path where plugins can be found. */

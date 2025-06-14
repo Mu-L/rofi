@@ -41,11 +41,8 @@
 #include <sysexits.h>
 #include <time.h>
 #include <unistd.h>
-#include <xcb/xcb.h>
 
 #include <glib-unix.h>
-
-#include <libgwater-xcb.h>
 
 #ifdef USE_NK_GIT_VERSION
 #include "nkutils-git-version.h"
@@ -73,6 +70,11 @@
 #include "theme.h"
 
 #include "timings.h"
+
+#ifdef ENABLE_WAYLAND
+#include <wayland-version.h>
+
+#endif
 
 /** Location of pidfile for this instance. */
 char *pidfile = NULL;
@@ -350,26 +352,58 @@ static void print_main_application_options(int is_term) {
                  "Print a list of current keybindings and exit.", NULL,
                  is_term);
 }
-static void help(G_GNUC_UNUSED int argc, char **argv) {
+
+static void print_backend_info() {
   int is_term = isatty(fileno(stdout));
-  printf("%s usage:\n", argv[0]);
-  printf("\t%s [-options ...]\n\n", argv[0]);
-  printf("Command line only options:\n");
-  print_main_application_options(is_term);
-  printf("DMENU command line options:\n");
-  print_dmenu_options();
-  printf("Global options:\n");
-  print_options();
-  printf("\n");
-  printf("Detected Window manager:\n");
-  char *wm = x11_helper_get_window_manager();
-  if (wm) {
-    printf("\t• %s\n", wm);
-    g_free(wm);
+  printf("Display backends:\n");
+#ifdef ENABLE_XCB
+  printf("\t• xcb");
+  if (config.backend == DISPLAY_XCB) {
+    printf(": %sselected%s\n", is_term ? color_bold : "",
+           is_term ? color_reset : "");
   } else {
-    printf("\t• No window manager detected.\n");
+    printf("\n");
   }
+#endif
+#ifdef ENABLE_WAYLAND
+  printf("\t• wayland");
+  if (config.backend == DISPLAY_WAYLAND) {
+    printf(": %sselected%s\n", is_term ? color_bold : "",
+           is_term ? color_reset : "");
+  } else {
+    printf("\n");
+  }
+#endif
   printf("\n");
+}
+
+static void help(G_GNUC_UNUSED int argc, char **argv, const gboolean compact) {
+  int is_term = isatty(fileno(stdout));
+  if (!compact) {
+    printf("%s usage:\n", argv[0]);
+    printf("\t%s [-options ...]\n\n", argv[0]);
+    printf("Command line only options:\n");
+    print_main_application_options(is_term);
+    printf("DMENU command line options:\n");
+    print_dmenu_options();
+    printf("Global options:\n");
+    print_options();
+    printf("\n");
+  }
+  print_backend_info();
+#ifdef ENABLE_XCB
+  if (config.backend == DISPLAY_XCB) {
+    printf("Detected Window manager:\n");
+    char *wm = x11_helper_get_window_manager();
+    if (wm) {
+      printf("\t• %s\n", wm);
+      g_free(wm);
+    } else {
+      printf("\t• No window manager detected.\n");
+    }
+    printf("\n");
+  }
+#endif
   display_dump_monitor_layout();
   printf("\n");
   printf("Detected modes:\n");
@@ -394,13 +428,6 @@ static void help(G_GNUC_UNUSED int argc, char **argv) {
   printf("\t• drun    %sdisabled%s\n", is_term ? color_red : "",
          is_term ? color_reset : "");
 #endif
-#ifdef ENABLE_GCOV
-  printf("\t• gcov    %senabled%s\n", is_term ? color_green : "",
-         is_term ? color_reset : "");
-#else
-  printf("\t• gcov    %sdisabled%s\n", is_term ? color_red : "",
-         is_term ? color_reset : "");
-#endif
 #ifdef ENABLE_ASAN
   printf("\t• asan    %senabled%s\n", is_term ? color_green : "",
          is_term ? color_reset : "");
@@ -413,6 +440,20 @@ static void help(G_GNUC_UNUSED int argc, char **argv) {
          is_term ? color_reset : "");
 #else
   printf("\t• imdkit  %sdisabled%s\n", is_term ? color_red : "",
+         is_term ? color_reset : "");
+#endif
+#ifdef ENABLE_XCB
+  printf("\t• xcb     %senabled%s\n", is_term ? color_green : "",
+         is_term ? color_reset : "");
+#else
+  printf("\t• xcb     %sdisabled%s\n", is_term ? color_red : "",
+         is_term ? color_reset : "");
+#endif
+#ifdef ENABLE_WAYLAND
+  printf("\t• wayland %senabled%s (%s)\n", is_term ? color_green : "",
+         is_term ? color_reset : "", WAYLAND_VERSION);
+#else
+  printf("\t• wayland %sdisabled%s\n", is_term ? color_red : "",
          is_term ? color_reset : "");
 #endif
   printf("\n");
@@ -629,9 +670,18 @@ static void rofi_collectmodes_dir(const char *base_dir) {
  */
 static void rofi_collect_modes(void) {
 #ifdef WINDOW_MODE
-  rofi_collectmodes_add(&window_mode);
-  rofi_collectmodes_add(&window_mode_cd);
+#ifdef ENABLE_XCB
+  if (config.backend == DISPLAY_XCB) {
+    rofi_collectmodes_add(&window_mode);
+    rofi_collectmodes_add(&window_mode_cd);
+  }
 #endif
+#ifdef ENABLE_WAYLAND
+  if (config.backend == DISPLAY_WAYLAND) {
+    rofi_collectmodes_add(&wayland_window_mode);
+  }
+#endif
+#endif // WINDOW_MODE
   rofi_collectmodes_add(&run_mode);
   rofi_collectmodes_add(&ssh_mode);
 #ifdef ENABLE_DRUN
@@ -1004,8 +1054,32 @@ int main(int argc, char *argv[]) {
     find_arg_str("-config", &c);
     config_path = rofi_expand_path(c);
   }
-
   TICK();
+
+  const struct _display_proxy *proxy = NULL;
+#ifdef ENABLE_XCB
+  proxy = xcb_proxy;
+  config.backend = DISPLAY_XCB;
+#endif
+
+#ifdef ENABLE_WAYLAND
+#ifdef ENABLE_XCB
+  const gchar *wl_display = g_getenv("WAYLAND_DISPLAY");
+  if (find_arg("-x11") < 0 && find_arg("-xcb") < 0 && wl_display != NULL &&
+      strlen(wl_display) > 0) {
+    proxy = wayland_proxy;
+    config.backend = DISPLAY_WAYLAND;
+  }
+#else
+  proxy = wayland_proxy;
+  config.backend = DISPLAY_WAYLAND;
+#endif
+#endif
+
+  display_init(proxy);
+
+  TICK_N("Select Backend");
+
   if (setlocale(LC_ALL, "") == NULL) {
     g_warning("Failed to set locale.");
     cleanup();
@@ -1173,7 +1247,12 @@ int main(int argc, char *argv[]) {
   // catch help request
   if (find_arg("-h") >= 0 || find_arg("-help") >= 0 ||
       find_arg("--help") >= 0) {
-    help(argc, argv);
+    help(argc, argv, FALSE);
+    cleanup();
+    return EXIT_SUCCESS;
+  }
+  if (find_arg("-info") >= 0 || find_arg("--info") >= 0) {
+    help(argc, argv, TRUE);
     cleanup();
     return EXIT_SUCCESS;
   }
@@ -1220,6 +1299,7 @@ int main(int argc, char *argv[]) {
   }
   TICK_N("Setup late Display");
 
+  rofi_theme_set_disp_scale_func(display_scale);
   rofi_theme_parse_process_conditionals();
   rofi_theme_parse_process_links();
   TICK_N("Theme setup");

@@ -29,7 +29,6 @@
 #include "glibconfig.h"
 #include "rofi-icon-fetcher.h"
 #include "rofi.h"
-#include "xcb.h"
 #include "xrmoptions.h"
 #include <assert.h>
 #include <glib.h>

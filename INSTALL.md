@@ -3,70 +3,77 @@
 This guide explains how to install rofi using its build system and how you can
 make debug builds.
 
-Rofi uses autotools (GNU Build system), for more information see
-[here](https://www.gnu.org/software/automake/manual/html_node/Autotools-Introduction.html).
-You can also use [Meson](https://mesonbuild.com/) as an alternative.
+Rofi uses [Meson](https://mesonbuild.com/) as build system.
+Be default rofi builds with both backends (x11 and wayland) if available on the
+system. If no backend is found, it will give an error.
+You can force the build system to disable the [wayland](#disable-wayland-support)
+or [x11](#disable-x11-support) backend.
 
 ## DEPENDENCY
 
 ### For building
 
--   C compiler that supports the c99 standard. (gcc or clang)
+- C compiler that supports the c99 standard. (gcc or clang)
 
--   make
+- make
 
--   autoconf
+- meson
 
--   automake (1.11.3 or up)
+- ninja
 
--   pkg-config
+- pkg-config
 
--   flex 2.5.39 or higher
+- flex 2.5.39 or higher
 
--   bison
+- bison
 
--   check (Can be disabled using the `--disable-check` configure flag)
+- check (Can be disabled using the `--disable-check` configure flag)
     check is used for build-time tests and does not affect functionality.
 
--   Developer packages of the external libraries
+- Developer packages of the external libraries
 
--   glib-compile-resources
+- glib-compile-resources
 
 ### External libraries
 
--   libpango >= 1.50
+- libpango >= 1.50
 
--   libpangocairo
+- libpangocairo
 
--   libcairo
+- libcairo
 
--   libcairo-xcb
+- libcairo-xcb
 
--   libglib2.0 >= 2.72
-    - gmodule-2.0
-    - gio-unix-2.0
+- libglib2.0 >= 2.72
+  - gmodule-2.0
+  - gio-unix-2.0
 
--   libgdk-pixbuf-2.0
+- libgdk-pixbuf-2.0
 
--   libstartup-notification-1.0
+- libstartup-notification-1.0
 
--   libxkbcommon >= 0.4.1
+- libxkbcommon >= 0.4.1
 
--   libxkbcommon-x11
+- libxkbcommon-x11
 
--   libxcb (sometimes split, you need libxcb, libxcb-xkb and libxcb-randr
+- libxcb (sometimes split, you need libxcb, libxcb-xkb and libxcb-randr
     libxcb-xinerama)
 
--   xcb-util
+- xcb-util
 
--   xcb-util-wm (sometimes split as libxcb-ewmh and libxcb-icccm)
+- xcb-util-wm (sometimes split as libxcb-ewmh and libxcb-icccm)
 
--   xcb-util-cursor
+- xcb-util-cursor
 
--   xcb-imdkit  (optional, 1.0.3 or up preferred)
+- xcb-imdkit  (optional, 1.0.3 or up preferred)
 
 On debian based systems, the developer packages are in the form of:
 `<package>-dev` on rpm based `<package>-devel`.
+
+For wayland support:
+
+- wayland
+- wayland-protocols >= 1.17
 
 ## Install from a release
 
@@ -74,35 +81,6 @@ When downloading from the github release page, make sure to grab the archive
 `rofi-{version}.tar.[g|x]z`. The auto-attached files `source code (zip|tar.gz)`
 by github do not contain a valid release. It misses a setup build system and
 includes irrelevant files.
-
-### Autotools
-
-Create a build directory and enter it:
-
-```bash
-    mkdir build && cd build
-```
-
-Check dependencies and configure build system:
-
-```bash
-    ../configure
-```
-
-Build Rofi:
-
-```bash
-    make
-```
-
-The actual install, execute as root (if needed):
-
-```bash
-    make install
-```
-
-The default installation prefix is: `/usr/local/` use `./configure
---prefix={prefix}` to install into another location.
 
 ### Meson
 
@@ -147,19 +125,11 @@ If you already have a checkout:
     git submodule update --init
 ```
 
-For Autotools you have an extra step, to generate build system:
-
-```bash
-    autoreconf -i
-```
-
 From this point, use the same steps you use for a release.
 
-## Options for configure
+## Options for building
 
 When you run the configure step there are several options you can configure.
-
-For Autotools, you can see the full list with `./configure --help`.
 
 For Meson, before the initial setup, you can see rofi options in
 `meson_options.txt` and Meson options with `meson setup --help`. Meson's
@@ -172,9 +142,6 @@ used to configure options, by the same means.
 The most useful one to set is the installation prefix:
 
 ```bash
-    # Autotools
-    ../configure --prefix=<installation path>
-
     # Meson
     meson setup build --prefix <installation path>
 ```
@@ -182,11 +149,20 @@ The most useful one to set is the installation prefix:
 f.e.
 
 ```bash
-    # Autotools
-    ../configure --prefix=/usr/
-
     # Meson
     meson setup build --prefix /usr
+```
+
+### Disable x11 support
+
+```bash
+meson setup build -Dxcb=disabled
+```
+
+### Disable wayland support
+
+```bash
+meson setup build -Dwayland=disabled
 ```
 
 ### Install locally
@@ -194,9 +170,6 @@ f.e.
 or to install locally:
 
 ```bash
-    # Autotools
-    ../configure --prefix=${HOME}/.local/
-
     # Meson
     meson setup build --prefix ${HOME}/.local
 ```
@@ -210,9 +183,6 @@ When you run make you can tweak the build process a little.
 Show the commands called:
 
 ```bash
-    # Autotools
-    make V=1
-
     # Meson
     ninja -C build -v
 ```
@@ -223,9 +193,6 @@ Compile with debug symbols and no optimization, this is useful for making
 backtraces:
 
 ```bash
-    # Autotools
-    make CFLAGS="-O0 -g3" clean rofi
-
     # Meson
     meson configure build --debug
     ninja -C build
@@ -239,9 +206,6 @@ to go is to enable core file. (ulimit -c unlimited in bash) then make rofi
 crash. You can then load the core in GDB.
 
 ```bash
-    # Autotools
-    gdb rofi core
-
     # Meson (because it uses a separate build directory)
     gdb build/rofi core
 ```

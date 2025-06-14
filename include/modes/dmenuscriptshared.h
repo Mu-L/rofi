@@ -17,6 +17,7 @@ typedef struct {
   /** Async icon fetch handler. */
   uint32_t icon_fetch_uid;
   uint32_t icon_fetch_size;
+  guint icon_fetch_scale;
   /** Hidden meta keywords. */
   char *meta;
 

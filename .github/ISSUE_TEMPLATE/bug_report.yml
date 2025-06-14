@@ -24,13 +24,10 @@ body:
         If you report problems with speed in rofi, attach a [timing
         trace](https://github.com/davatorium/rofi/blob/next/doc/rofi-debugging.5.markdown#timing-traces).
 
-        **Please do not submit reports related to wayland, see
-        [here](https://github.com/DaveDavenport/rofi/wiki/Wayland) for more
-        information.**
 
   - type: input
     attributes:
-      label: "Rofi version (rofi -v)"
+      label: "Rofi version (rofi -v or git commit in case of build issue)"
       placeholder: "Version: 1.7.5"
     validations:
       required: true
@@ -38,7 +35,7 @@ body:
     attributes:
       label: "Configuration"
       description: |
-        Please use https://gist.github.com and include output of `rofi -dump-config`.
+        Please use https://gist.github.com and include output of `rofi -info` and `rofi -dump-config`.
         n/a is not a valid config.
       placeholder: "Gist URL"
     validations:
@@ -94,14 +91,6 @@ body:
     validations:
       required: false
   - type: checkboxes
-    id: wayland
-    attributes:
-      label: Using wayland display server protocol
-      description: I have checked and confirm that I am not using wayland as display server protocol. See [here](https://github.com/DaveDavenport/rofi/wiki/Wayland) for more        information.
-      options:
-        - label: "No, I don't use the wayland display server protocol"
-          required: true
-  - type: checkboxes
     id: latestversion
     attributes:
       label: I've checked if the issue exists in the latest stable release
@@ -109,6 +98,3 @@ body:
       options:
         - label: "Yes, I have checked the problem exists in the latest stable version"
           required: false
-      
-
-

@@ -36,7 +36,6 @@
 #include "rofi.h"
 #include "settings.h"
 #include "view.h"
-#include "xcb.h"
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -746,10 +745,11 @@ int config_sanity_check(void) {
     found_error = 1;
   }
 
+#ifdef ENABLE_XCB
   // Check size
   {
     workarea mon;
-    if (!monitor_active(&mon)) {
+    if (config.backend == DISPLAY_XCB && !monitor_active(&mon)) {
       const char *name = config.monitor;
       if (name && name[0] == '-') {
         int index = name[1] - '0';
@@ -762,6 +762,7 @@ int config_sanity_check(void) {
       found_error = TRUE;
     }
   }
+#endif
 
   if (g_strcmp0(config.monitor, "-3") == 0) {
     // On -3, set to location 1.
